@@ -1,5 +1,16 @@
 #!/bin/bash
 #
+# CRLF 감지 및 자동 변환 후 재실행
+if file "$0" 2>/dev/null | grep -q CRLF; then
+    echo "[INFO] CRLF 줄바꿈 감지됨 - LF로 변환 후 재실행합니다."
+    if command -v dos2unix &>/dev/null; then
+        dos2unix "$0"
+    else
+        sed -i 's/\r//' "$0"
+    fi
+    exec bash "$0" "$@"
+fi
+#
 # OpenSSL/OpenSSH 보안 패치 자동화 스크립트 v2.1
 # Rocky Linux / RHEL 9.0 ~ 9.x 전 버전 지원
 # 
@@ -273,6 +284,8 @@ check_and_remove_local_ssh() {
             hash -r
             log_success "/usr/local SSH 제거 완료"
             log "백업 위치: $BACKUP_DIR/local_ssh"
+            log_warning "현재 셸의 ssh 명령 캐시가 남아있을 수 있습니다."
+            log_warning "패치 완료 후 SSH를 재연결하거나 'hash -r' 명령을 실행하세요."
         else
             log_error "패치를 계속하려면 /usr/local SSH를 제거해야 합니다."
             exit 1
@@ -547,6 +560,10 @@ final_verification() {
     log "로그 파일: $LOG_FILE"
     log "백업 위치: $BACKUP_DIR"
     log "결과 파일: $RESULT_FILE"
+    log_warning "\n⚠️  SSH 명령 캐시 초기화 안내"
+    log_warning "현재 터미널에서 'ssh -V' 실행 시 오류가 발생할 수 있습니다."
+    log_warning "해결 방법: SSH를 재연결하거나 아래 명령을 실행하세요."
+    log "  hash -r"
 }
 
 # 결과 파일 생성
