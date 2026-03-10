@@ -393,7 +393,7 @@ configure_bond0() {
 
     print_info "Creating bond0 interface..."
     nmcli connection add type bond con-name bond0 ifname bond0 \
-        bond.options "mode=active-backup,miimon=100,fail_over_mac=active,primary=$BOND0_PRIMARY_NIC"
+        bond.options "mode=active-backup,miimon=100,updelay=200,fail_over_mac=active,primary=$BOND0_PRIMARY_NIC,primary_reselect=always"
 
     print_info "Configuring IP settings for bond0..."
     local ip_with_prefix="${BOND0_IP}/${BOND0_PREFIX}"
@@ -433,7 +433,7 @@ configure_bond1() {
 
     print_info "Creating bond1 interface..."
     nmcli connection add type bond con-name bond1 ifname bond1 \
-        bond.options "mode=active-backup,miimon=100,fail_over_mac=active,primary=$BOND1_PRIMARY_NIC"
+        bond.options "mode=active-backup,miimon=100,updelay=200,fail_over_mac=active,primary=$BOND1_PRIMARY_NIC,primary_reselect=always"
 
     print_info "Configuring bond1 as bridge slave..."
     nmcli connection modify bond1 ipv4.method disabled
