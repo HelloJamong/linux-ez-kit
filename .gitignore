@@ -1,0 +1,15 @@
+# 기능 정의서 (추후 삭제 예정)
+scripts/keepalive-guardian/IMPLEMENTATION_SPEC.md
+
+# 백업 디렉토리
+/backup/
+
+# 임시 파일
+*.tmp
+*.log
+*.swp
+*~
+
+# OS 관련
+.DS_Store
+Thumbs.db
