@@ -13,3 +13,6 @@ scripts/keepalive-guardian/IMPLEMENTATION_SPEC.md
 # OS 관련
 .DS_Store
 Thumbs.db
+
+# OMC (oh-my-claudecode)
+.omc/
