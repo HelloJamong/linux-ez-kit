@@ -1,0 +1,63 @@
+################################################################################
+# Keepalive Guardian - Keepalived 설정 템플릿
+#
+# 이 파일은 install.sh 가 자동으로 처리합니다.
+# 직접 편집 시 {{변수}} 형식의 플레이스홀더를 실제 값으로 교체하세요.
+#
+# 플레이스홀더 목록:
+#   {{ROUTER_ID}}              - 이 서버의 호스트명 (라우터 식별자)
+#   {{VRRP_STATE}}             - MASTER (Active) 또는 BACKUP (Standby)
+#   {{VRRP_INTERFACE}}         - VIP를 바인딩할 네트워크 인터페이스 (예: ens18)
+#   {{VRRP_ROUTER_ID}}         - VRRP 그룹 ID, 동일 L2 네트워크에서 고유해야 함 (1~255)
+#   {{VRRP_PRIORITY}}          - 우선순위 (Active=100, Standby=90)
+#   {{VRRP_VIRTUAL_IP}}        - 가상 IP 주소 (VIP)
+#   {{AUTH_PASSWORD}}          - VRRP 인증 패스워드 (양쪽 서버 동일해야 함)
+#   {{HEALTH_CHECK_INTERVAL}}  - 헬스체크 실행 주기 (초)
+#   {{HEALTH_CHECK_FALL}}      - 연속 실패 횟수 (장애 판정 기준)
+#                                전환 감지 시간 = INTERVAL × FALL (초)
+#   {{PEER_IP}}                - 상대 서버 IP (unicast_peer 설정용)
+################################################################################
+
+global_defs {
+    router_id {{ROUTER_ID}}
+    vrrp_skip_check_adv_addr
+    vrrp_strict
+}
+
+vrrp_script chk_service {
+    script "/usr/local/bin/service_health_check.sh"
+    interval {{HEALTH_CHECK_INTERVAL}}
+    weight -20
+    fall {{HEALTH_CHECK_FALL}}
+    rise 1
+}
+
+vrrp_instance VI_1 {
+    state {{VRRP_STATE}}
+    interface {{VRRP_INTERFACE}}
+    virtual_router_id {{VRRP_ROUTER_ID}}
+    priority {{VRRP_PRIORITY}}
+    advert_int 1
+
+    # 멀티캐스트 대신 유니캐스트 사용 (L2 분리 환경 및 Docker 혼용 환경 대응)
+    unicast_src_ip {{CURRENT_IP}}
+    unicast_peer {
+        {{PEER_IP}}
+    }
+
+    authentication {
+        auth_type PASS
+        auth_pass {{AUTH_PASSWORD}}
+    }
+
+    virtual_ipaddress {
+        {{VRRP_VIRTUAL_IP}}
+    }
+
+    track_script {
+        chk_service
+    }
+
+    # Failback 안정화 체크: MASTER 승격 시 실행
+    notify_master "/usr/local/bin/service_recovery_check.sh"
+}
