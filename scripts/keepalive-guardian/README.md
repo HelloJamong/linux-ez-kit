@@ -54,11 +54,16 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 keepalive-guardian/
 ├── README.md                         # 사용 가이드 (이 문서)
 ├── IMPLEMENTATION_SPEC.md            # 구현 정의서 (참고 문서)
+├── check_environment.sh              # 환경 점검 및 RPM 설치 스크립트
 ├── install.sh                        # 설치 자동화 스크립트
+├── install.conf                      # 비대화형 설치 설정 파일
 ├── keepalived.conf.template          # Keepalived 설정 템플릿
-├── service_check.conf                # 환경 변수 설정 파일
+├── service_check.conf                # 헬스체크 환경 변수 설정 파일
 ├── service_health_check.sh           # 장애 판정 스크립트
-└── service_recovery_check.sh         # Failback 안정화 체크 스크립트
+├── service_recovery_check.sh         # MASTER 승격 알림 스크립트
+└── install_package/                  # 오프라인 설치용 RPM 패키지
+    ├── keepalived-*.rpm
+    └── (의존성 패키지)
 ```
 
 ## 장애 판정 기준
@@ -74,9 +79,39 @@ keepalive-guardian/
 
 ## 설치 및 구성
 
-### 1. 설정 파일 편집
+### 사전 준비 — 방화벽 VRRP 허용
 
-`service_check.conf` 파일을 환경에 맞게 수정합니다:
+Keepalived는 TCP/UDP 포트가 아닌 **IP Protocol 112 (VRRP)** 를 사용합니다.
+두 서버 모두 VRRP 프로토콜을 방화벽에서 허용해야 합니다.
+
+```bash
+# VRRP 프로토콜 허용 (양쪽 서버 모두 실행)
+sudo firewall-cmd --add-rich-rule='rule protocol value="vrrp" accept' --permanent
+sudo firewall-cmd --reload
+
+# 적용 확인
+firewall-cmd --list-rich-rules | grep vrrp
+```
+
+> **참고**: `install.sh` 실행 시 firewalld가 동작 중이면 위 규칙이 자동으로 추가됩니다.
+> firewalld를 사용하지 않는 환경이거나 사전에 방화벽 정책을 일괄 적용하는 경우에는 위 명령어를 수동으로 실행하세요.
+
+---
+
+### 1. 환경 점검 및 패키지 설치
+
+```bash
+# 양쪽 서버 모두 실행
+sudo ./check_environment.sh
+```
+
+`install_package/` 폴더의 RPM 패키지를 오프라인으로 설치하고 환경을 점검합니다.
+
+---
+
+### 2. 헬스체크 설정 파일 편집
+
+`service_check.conf` 파일을 환경에 맞게 수정합니다 (양쪽 서버 동일하게 적용):
 
 ```bash
 # 체크할 프로세스 목록
@@ -85,57 +120,82 @@ PROCESS_LIST=(nginx mysqld)
 # 체크할 포트 목록
 PORT_LIST=(80 443 3306)
 
-# 데이터베이스 접속 정보
+# 데이터베이스 복제 체크 (사용 시 yes로 변경)
+DB_ENABLED=no
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=healthcheck
 DB_PASSWORD=your_password_here
 
-# Failback 안정화 시간 (초)
+# Failback 안정화 시간 (초, 권장 60초 이상)
 FAILBACK_DELAY=300
 
 # Replication lag 임계값 (초)
 REPLICATION_LAG_LIMIT=30
 ```
 
-### 2. Keepalived 설정 템플릿 편집
-
-`keepalived.conf.template` 파일에서 VIP 및 우선순위를 설정합니다:
-
-```bash
-# Active 서버 (우선순위 높음)
-VRRP_STATE=MASTER
-VRRP_PRIORITY=100
-VRRP_VIRTUAL_IP=192.168.10.100
-
-# Standby 서버 (우선순위 낮음)
-VRRP_STATE=BACKUP
-VRRP_PRIORITY=90
-VRRP_VIRTUAL_IP=192.168.10.100
-```
+---
 
 ### 3. 설치 스크립트 실행
 
-**Active 서버에서 실행:**
+#### 대화형 설치 (기본)
+
+실행 중 VIP, 서버 역할, 인터페이스 등을 직접 입력합니다.
 
 ```bash
-sudo ./install.sh --role active
+sudo ./install.sh
 ```
 
-**Standby 서버에서 실행:**
+#### 비대화형 설치 (설정 파일 사용)
+
+`install.conf` 파일을 미리 편집한 후 실행합니다.
 
 ```bash
-sudo ./install.sh --role standby
+# install.conf 편집 (Active 서버)
+vi install.conf
+# ROLE=active
+# VIP=192.168.0.100
+# PEER_IP=192.168.0.20   ← Standby 서버 IP
+# AUTH_PASSWORD=KAGrd251  ← 양쪽 동일하게 설정
+
+# Active 서버에서 실행
+sudo ./install.sh --config install.conf
+
+# install.conf 편집 (Standby 서버)
+# ROLE=standby
+# VIP=192.168.0.100
+# PEER_IP=192.168.0.10   ← Active 서버 IP
+# AUTH_PASSWORD=KAGrd251  ← 양쪽 동일하게 설정
+
+# Standby 서버에서 실행
+sudo ./install.sh --config install.conf
+
+# 확인 프롬프트 없이 자동 진행
+sudo ./install.sh --config install.conf --yes
 ```
+
+`install.conf` 주요 설정 항목:
+
+| 항목 | 설명 | Active | Standby |
+|------|------|--------|---------|
+| `ROLE` | 서버 역할 | `active` | `standby` |
+| `VIP` | 가상 IP | 동일 | 동일 |
+| `PEER_IP` | 상대 서버 IP | Standby IP | Active IP |
+| `AUTH_PASSWORD` | VRRP 인증 패스워드 | 동일 | 동일 |
+| `VRRP_INTERFACE` | 네트워크 인터페이스 | 미설정 시 자동 감지 | 미설정 시 자동 감지 |
+
+---
 
 설치 스크립트는 다음 작업을 자동으로 수행합니다:
 
-1. Keepalived 패키지 설치 확인
-2. 설정 파일 백업
-3. 헬스 체크 스크립트 배치 (`/usr/local/bin/`)
-4. Keepalived 설정 파일 생성 (`/etc/keepalived/`)
-5. 환경 설정 파일 복사 (`/etc/keepalived/service_check.conf`)
-6. Keepalived 서비스 시작 및 자동 시작 설정
+1. 사전 조건 확인 (Root 권한, OS, keepalived 설치 여부)
+2. 기존 설정 파일 백업 (`/backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/`)
+3. keepalived.conf 생성 (`/etc/keepalived/keepalived.conf`)
+4. 헬스체크 설정 파일 배포 (`/etc/keepalived/service_check.conf`)
+5. 헬스체크 스크립트 배포 (`/usr/local/bin/`)
+6. 방화벽 VRRP 허용 (firewalld 사용 시)
+7. 로그 로테이션 설정
+8. keepalived 서비스 시작 및 자동 시작 등록
 
 ## 동작 확인
 

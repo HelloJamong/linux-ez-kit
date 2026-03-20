@@ -4,7 +4,10 @@
 # Keepalive Guardian - 서비스 설치 스크립트
 #
 # 목적: keepalived 기반 Active-Standby HA 서비스 자동 구성
-# 사용법: sudo ./install.sh
+# 사용법:
+#   대화형:     sudo ./install.sh
+#   비대화형:   sudo ./install.sh --config install.conf
+#               sudo ./install.sh --config install.conf --yes
 # 환경: Rocky Linux 8.x / 9.x
 ################################################################################
 
@@ -16,8 +19,14 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="/backup/keepalive-guardian/backup_${TIMESTAMP}"
 REPORT_FILE="${SCRIPT_DIR}/install_report_${TIMESTAMP}.txt"
 
+VERSION="v26.03.01"        # 스크립트 버전 (YY.MM.일련번호)
+
 VRRP_ROUTER_ID=51          # 동일 L2 네트워크에서 고유한 VRRP 그룹 ID
 HEALTH_CHECK_INTERVAL=2    # 헬스체크 실행 주기 (초, 고정)
+
+NON_INTERACTIVE=false      # --config 옵션 사용 시 true
+CONFIG_FILE=""             # --config 로 지정한 설정 파일 경로
+AUTO_CONFIRM=false         # --yes 옵션 사용 시 최종 확인 자동 승인
 
 # ------------------------------------------------------------------------------
 # 컬러 정의
@@ -38,6 +47,7 @@ print_banner() {
     echo -e "${BOLD}======================================================================${NC}"
     echo -e "${BOLD}       Keepalive Guardian - 서비스 설치 스크립트${NC}"
     echo -e "${BOLD}======================================================================${NC}"
+    echo -e "  버전:      ${CYAN}${VERSION}${NC}"
     echo -e "  설치 시작: $(date '+%Y-%m-%d %H:%M:%S')"
     echo -e "  대상 서버: $(hostname) ($(hostname -I | awk '{print $1}'))"
     echo -e "${BOLD}======================================================================${NC}"
@@ -60,6 +70,141 @@ error_exit() {
     echo ""
     echo -e "${RED}설치가 중단되었습니다. 보고서: ${REPORT_FILE}${NC}"
     exit 1
+}
+
+# ------------------------------------------------------------------------------
+# 인수 파싱
+# ------------------------------------------------------------------------------
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --config)
+                if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                    error_exit "--config 옵션에 설정 파일 경로가 필요합니다. (예: --config install.conf)"
+                fi
+                CONFIG_FILE="$2"
+                NON_INTERACTIVE=true
+                shift 2
+                ;;
+            --yes|-y)
+                AUTO_CONFIRM=true
+                shift
+                ;;
+            --help|-h)
+                echo ""
+                echo "사용법:"
+                echo "  대화형:   sudo ./install.sh"
+                echo "  비대화형: sudo ./install.sh --config <설정파일> [--yes]"
+                echo ""
+                echo "옵션:"
+                echo "  --config <파일>  설정 파일을 지정하여 비대화형 설치 진행"
+                echo "  --yes, -y        최종 확인 프롬프트 자동 승인"
+                echo "  --help, -h       이 도움말 출력"
+                echo ""
+                exit 0
+                ;;
+            *)
+                error_exit "알 수 없는 옵션: $1  (--help 로 사용법 확인)"
+                ;;
+        esac
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 설정 파일 로드 (비대화형 모드)
+# ------------------------------------------------------------------------------
+load_from_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        error_exit "설정 파일을 찾을 수 없습니다: ${CONFIG_FILE}"
+    fi
+
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+
+    log_info "설정 파일 로드: ${CONFIG_FILE}"
+
+    # 필수 항목 검증
+    local errors=()
+
+    case "$ROLE" in
+        active)
+            VRRP_STATE="MASTER"
+            VRRP_PRIORITY=100
+            ;;
+        standby)
+            VRRP_STATE="BACKUP"
+            VRRP_PRIORITY=90
+            ;;
+        "")
+            errors+=("ROLE 이 설정되지 않았습니다. (active 또는 standby)")
+            ;;
+        *)
+            errors+=("ROLE 값이 잘못되었습니다: '${ROLE}' (active 또는 standby 만 허용)")
+            ;;
+    esac
+
+    if [ -z "$VIP" ]; then
+        errors+=("VIP 가 설정되지 않았습니다.")
+    elif ! validate_ip "$VIP"; then
+        errors+=("VIP 형식이 잘못되었습니다: '${VIP}'")
+    fi
+
+    if [ -z "$PEER_IP" ]; then
+        errors+=("PEER_IP 가 설정되지 않았습니다.")
+    elif ! validate_ip "$PEER_IP"; then
+        errors+=("PEER_IP 형식이 잘못되었습니다: '${PEER_IP}'")
+    fi
+
+    # FAILOVER_DELAY 기본값 및 검증
+    FAILOVER_DELAY="${FAILOVER_DELAY:-10}"
+    if ! [[ "$FAILOVER_DELAY" =~ ^[0-9]+$ ]] || [ "$FAILOVER_DELAY" -lt 2 ]; then
+        errors+=("FAILOVER_DELAY 는 2 이상의 숫자여야 합니다: '${FAILOVER_DELAY}'")
+    fi
+
+    # 오류가 있으면 전부 출력 후 종료
+    if [ "${#errors[@]}" -gt 0 ]; then
+        log_error "설정 파일 오류 (${CONFIG_FILE}):"
+        for err in "${errors[@]}"; do
+            log_error "  - ${err}"
+        done
+        error_exit "설정 파일을 확인하고 다시 실행하세요."
+    fi
+
+    # 인터페이스 자동 감지 (미설정 시)
+    if [ -z "$VRRP_INTERFACE" ]; then
+        VRRP_INTERFACE=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v "^lo$" | grep -v "@" | head -1)
+        log_info "VRRP_INTERFACE 미설정 → 자동 감지: ${VRRP_INTERFACE}"
+    fi
+
+    if ! ip link show "$VRRP_INTERFACE" &>/dev/null; then
+        error_exit "VRRP_INTERFACE '${VRRP_INTERFACE}' 가 존재하지 않습니다."
+    fi
+
+    # 현재 서버 IP 자동 감지 (미설정 시)
+    if [ -z "$CURRENT_IP" ]; then
+        CURRENT_IP=$(ip -o -4 addr show "$VRRP_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+        if [ -z "$CURRENT_IP" ]; then
+            error_exit "CURRENT_IP 를 자동 감지하지 못했습니다. 설정 파일에 직접 입력하세요."
+        fi
+        log_info "CURRENT_IP 미설정 → 자동 감지: ${CURRENT_IP}"
+    elif ! validate_ip "$CURRENT_IP"; then
+        error_exit "CURRENT_IP 형식이 잘못되었습니다: '${CURRENT_IP}'"
+    fi
+
+    if [ "$PEER_IP" == "$CURRENT_IP" ]; then
+        error_exit "PEER_IP 와 CURRENT_IP 가 동일합니다. 상대 서버 IP를 확인하세요."
+    fi
+
+    # FAILBACK 감지 횟수 계산
+    HEALTH_CHECK_FALL=$(( (FAILOVER_DELAY + HEALTH_CHECK_INTERVAL - 1) / HEALTH_CHECK_INTERVAL ))
+
+    # VRRP 패스워드 자동 생성 (미설정 시)
+    if [ -z "$AUTH_PASSWORD" ]; then
+        AUTH_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 8 || echo "KAGuard1")
+        log_info "AUTH_PASSWORD 미설정 → 자동 생성: ${AUTH_PASSWORD}"
+        log_warn "상대 서버 설정 파일의 AUTH_PASSWORD 에 동일한 값을 입력하세요: ${AUTH_PASSWORD}"
+    fi
+    AUTH_PASSWORD="${AUTH_PASSWORD:0:8}"
 }
 
 # ------------------------------------------------------------------------------
@@ -91,10 +236,63 @@ list_interfaces() {
 }
 
 # ------------------------------------------------------------------------------
-# 1. 사전 조건 확인
+# 1. 패키지 설치 확인 및 설치
+# ------------------------------------------------------------------------------
+check_and_install_packages() {
+    print_section "1. 패키지 설치 확인"
+
+    if rpm -q keepalived &>/dev/null; then
+        log_success "keepalived 이미 설치됨: $(rpm -q keepalived)"
+        return 0
+    fi
+
+    log_warn "keepalived 가 설치되어 있지 않습니다."
+
+    local pkg_dir="${SCRIPT_DIR}/install_package"
+    local keepalived_rpm
+    keepalived_rpm=$(find "$pkg_dir" -name "keepalived-*.rpm" 2>/dev/null | head -1)
+
+    if [ -z "$keepalived_rpm" ]; then
+        log_error "install_package/ 폴더에 keepalived RPM 파일이 없습니다."
+        error_exit "RPM 파일을 install_package/ 폴더에 준비하거나 check_environment.sh 를 먼저 실행하세요."
+    fi
+
+    local rpm_count
+    rpm_count=$(find "$pkg_dir" -name "*.rpm" 2>/dev/null | wc -l)
+    log_info "설치 가능한 RPM: ${pkg_dir} (총 ${rpm_count}개)"
+    log_info "keepalived: $(basename "$keepalived_rpm")"
+    echo ""
+
+    local install_choice="Y"
+    if ! $AUTO_CONFIRM; then
+        read -r -p "  keepalived 및 의존성 패키지를 설치하시겠습니까? [Y/n]: " install_choice
+        install_choice="${install_choice:-Y}"
+    else
+        log_info "--yes 옵션으로 자동 설치 진행"
+    fi
+
+    if [[ "$install_choice" =~ ^[Nn]$ ]]; then
+        error_exit "keepalived 설치를 건너뛰었습니다. 설치 후 다시 실행하세요."
+    fi
+
+    log_info "패키지 설치 중..."
+    if rpm -ivh --nodeps "${pkg_dir}"/*.rpm >> "$REPORT_FILE" 2>&1; then
+        log_success "패키지 설치 완료"
+    else
+        rpm -ivh --nodeps --force "${pkg_dir}"/*.rpm >> "$REPORT_FILE" 2>&1 || \
+            error_exit "패키지 설치 실패. 보고서를 확인하세요: ${REPORT_FILE}"
+        log_success "패키지 설치 완료 (강제 설치)"
+    fi
+
+    rpm -q keepalived &>/dev/null || error_exit "keepalived 설치 확인 실패"
+    log_success "keepalived 설치 확인: $(rpm -q keepalived)"
+}
+
+# ------------------------------------------------------------------------------
+# 2. 사전 조건 확인
 # ------------------------------------------------------------------------------
 check_preconditions() {
-    print_section "1. 사전 조건 확인"
+    print_section "2. 사전 조건 확인"
 
     # Root 권한
     if [ "$EUID" -ne 0 ]; then
@@ -129,11 +327,99 @@ check_preconditions() {
 }
 
 # ------------------------------------------------------------------------------
-# 2. 설치 정보 입력 (대화형)
+# 3. service_check.conf 검토
+# ------------------------------------------------------------------------------
+review_service_check_conf() {
+    # 비대화형 모드에서는 건너뜀
+    if $NON_INTERACTIVE; then
+        log_info "비대화형 모드 — service_check.conf 검토 건너뜀"
+        return 0
+    fi
+
+    print_section "3. service_check.conf 검토"
+
+    local conf_file="${SCRIPT_DIR}/service_check.conf"
+    if [ ! -f "$conf_file" ]; then
+        log_warn "service_check.conf 파일이 없습니다. 설치 후 직접 생성하세요."
+        return 0
+    fi
+
+    while true; do
+        # 파일을 다시 읽어 최신 값 반영
+        unset PORT_LIST PROCESS_LIST DB_ENABLED DB_HOST DB_PORT DB_USER FAILBACK_DELAY REPLICATION_LAG_LIMIT
+        # shellcheck source=/dev/null
+        source "$conf_file"
+
+        echo ""
+        echo -e "  ${BOLD}현재 service_check.conf 설정:${NC}"
+        echo ""
+        printf "    %-22s %s\n" "포트 체크:"       "${PORT_LIST[*]:-설정 없음}"
+        printf "    %-22s %s\n" "프로세스 체크:"   "${PROCESS_LIST[*]:-설정 없음}"
+        printf "    %-22s %s\n" "DB 복제 체크:"    "${DB_ENABLED:-no}"
+        if [ "${DB_ENABLED}" == "yes" ]; then
+            printf "    %-22s %s\n" "DB 접속:"     "${DB_HOST}:${DB_PORT} (사용자: ${DB_USER})"
+        fi
+        printf "    %-22s %s\n" "Failback 대기:"   "${FAILBACK_DELAY:-300}초"
+        printf "    %-22s %s\n" "복제 지연 한계:"  "${REPLICATION_LAG_LIMIT:-30}초"
+        echo ""
+
+        read -r -p "  이 설정으로 진행하시겠습니까? [y/N/e(편집)]: " choice
+        echo ""
+        case "$choice" in
+            y|Y)
+                log_success "service_check.conf 설정 확인 완료"
+                break
+                ;;
+            e|E)
+                ${EDITOR:-vi} "$conf_file"
+                ;;
+            *)
+                echo -e "${YELLOW}설치가 취소되었습니다.${NC}"
+                exit 0
+                ;;
+        esac
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 4. 설치 정보 입력 (대화형)
 # ------------------------------------------------------------------------------
 collect_install_info() {
-    print_section "2. 설치 정보 입력"
+    print_section "4. 설치 정보 입력"
 
+    # 비대화형 모드: 설정 파일에서 로드
+    if $NON_INTERACTIVE; then
+        load_from_config
+
+        echo ""
+        echo -e "${BOLD}  ┌─────────────────────────────────────────────────────┐${NC}"
+        echo -e "${BOLD}  │              설치 정보 (설정 파일 로드)              │${NC}"
+        echo -e "${BOLD}  ├─────────────────────────────────────────────────────┤${NC}"
+        printf "  │  %-20s %-30s │\n" "설정 파일:"    "${CONFIG_FILE}"
+        printf "  │  %-20s %-30s │\n" "서버 역할:"    "${ROLE} (${VRRP_STATE}, priority=${VRRP_PRIORITY})"
+        printf "  │  %-20s %-30s │\n" "Virtual IP:"   "${VIP}"
+        printf "  │  %-20s %-30s │\n" "인터페이스:"   "${VRRP_INTERFACE}"
+        printf "  │  %-20s %-30s │\n" "현재 서버 IP:" "${CURRENT_IP}"
+        printf "  │  %-20s %-30s │\n" "상대 서버 IP:" "${PEER_IP}"
+        printf "  │  %-20s %-30s │\n" "장애 감지 시간:" "약 $((HEALTH_CHECK_INTERVAL * HEALTH_CHECK_FALL))초 (${HEALTH_CHECK_INTERVAL}초 × ${HEALTH_CHECK_FALL}회)"
+        printf "  │  %-20s %-30s │\n" "VRRP 패스워드:" "${AUTH_PASSWORD}"
+        echo -e "${BOLD}  └─────────────────────────────────────────────────────┘${NC}"
+        echo ""
+
+        if $AUTO_CONFIRM; then
+            log_info "--yes 옵션으로 자동 확인"
+        else
+            read -r -p "  위 내용으로 설치를 진행하시겠습니까? [y/N]: " final_confirm
+            echo ""
+            if [[ ! "$final_confirm" =~ ^[Yy]$ ]]; then
+                echo -e "${YELLOW}설치가 취소되었습니다.${NC}"
+                exit 0
+            fi
+        fi
+        return
+    fi
+
+    # 대화형 모드 (기존 로직)
     echo -e "  keepalived HA 구성에 필요한 정보를 입력합니다."
     echo -e "  ${YELLOW}(기본값이 있는 항목은 Enter 키로 기본값을 사용할 수 있습니다)${NC}"
     echo ""
@@ -306,7 +592,7 @@ collect_install_info() {
 # 3. 기존 설정 백업
 # ------------------------------------------------------------------------------
 backup_configs() {
-    print_section "3. 기존 설정 백업"
+    print_section "5. 기존 설정 백업"
 
     mkdir -p "$BACKUP_DIR"
     log_info "백업 디렉토리: ${BACKUP_DIR}"
@@ -373,7 +659,7 @@ RESTORE_EOF
 # 4. keepalived.conf 생성
 # ------------------------------------------------------------------------------
 generate_keepalived_conf() {
-    print_section "4. keepalived.conf 생성"
+    print_section "6. keepalived.conf 생성"
 
     mkdir -p /etc/keepalived
 
@@ -403,7 +689,7 @@ generate_keepalived_conf() {
 # 5. service_check.conf 배포
 # ------------------------------------------------------------------------------
 deploy_service_check_conf() {
-    print_section "5. service_check.conf 배포"
+    print_section "7. service_check.conf 배포"
 
     cp "${SCRIPT_DIR}/service_check.conf" /etc/keepalived/service_check.conf
     chmod 600 /etc/keepalived/service_check.conf
@@ -417,7 +703,7 @@ deploy_service_check_conf() {
 # 6. 헬스체크 스크립트 배포
 # ------------------------------------------------------------------------------
 deploy_health_check_scripts() {
-    print_section "6. 헬스체크 스크립트 배포"
+    print_section "8. 헬스체크 스크립트 배포"
 
     local scripts=("service_health_check.sh" "service_recovery_check.sh")
 
@@ -437,7 +723,7 @@ deploy_health_check_scripts() {
 # 7. 방화벽 VRRP 허용
 # ------------------------------------------------------------------------------
 configure_firewall() {
-    print_section "7. 방화벽 설정"
+    print_section "9. 방화벽 설정"
 
     if ! systemctl is-active firewalld &>/dev/null; then
         log_warn "firewalld 미실행 — 방화벽 설정 건너뜀"
@@ -460,7 +746,7 @@ configure_firewall() {
 # 8. 로그 로테이션 설정
 # ------------------------------------------------------------------------------
 configure_logrotate() {
-    print_section "8. 로그 로테이션 설정"
+    print_section "10. 로그 로테이션 설정"
 
     cat > /etc/logrotate.d/service-ha-check <<'EOF'
 /var/log/service_ha_check.log {
@@ -480,7 +766,7 @@ EOF
 # 9. keepalived 서비스 시작
 # ------------------------------------------------------------------------------
 start_keepalived() {
-    print_section "9. keepalived 서비스 시작"
+    print_section "11. keepalived 서비스 시작"
 
     systemctl enable keepalived &>/dev/null
     log_success "keepalived 자동 시작 활성화 (enable)"
@@ -505,7 +791,7 @@ start_keepalived() {
 # 10. 설치 결과 검증
 # ------------------------------------------------------------------------------
 verify_installation() {
-    print_section "10. 설치 결과 검증"
+    print_section "12. 설치 결과 검증"
 
     # 서비스 상태
     if systemctl is-active keepalived &>/dev/null; then
@@ -589,6 +875,8 @@ EOF
 # 메인
 # ------------------------------------------------------------------------------
 main() {
+    parse_args "$@"
+
     # 보고서 초기화
     mkdir -p "$(dirname "$REPORT_FILE")"
     echo "Keepalive Guardian 설치 보고서 — $(date '+%Y-%m-%d %H:%M:%S')" > "$REPORT_FILE"
@@ -597,7 +885,9 @@ main() {
 
     print_banner
 
+    check_and_install_packages
     check_preconditions
+    review_service_check_conf
     collect_install_info
     backup_configs
     generate_keepalived_conf
