@@ -1,16 +1,16 @@
 #!/bin/bash
 
 ################################################################################
-# Keepalive Guardian - MASTER 승격 알림 스크립트
+# Keepalive Guardian - MASTER Promotion Notification Script
 #
-# 위치: /usr/local/bin/service_recovery_check.sh
-# 목적: keepalived notify_master 훅 — VRRP MASTER 전환 시 자동 실행
-# 호출: keepalived notify_master (이 서버가 MASTER로 승격될 때)
+# Location: /usr/local/bin/service_recovery_check.sh
+# Purpose:  keepalived notify_master hook — runs automatically on VRRP MASTER transition
+# Called:   keepalived notify_master (when this server is promoted to MASTER)
 #
-# 동작:
-#   1. MASTER 승격 이벤트 로그 기록
-#   2. Failback 완료 시 안정화 타이머 파일 정리
-#   3. 승격 직후 서비스 상태 즉시 검증 및 로그
+# Actions:
+#   1. Log MASTER promotion event
+#   2. Clean up stabilization timer file on Failback completion
+#   3. Immediately verify and log service status after promotion
 ################################################################################
 
 CONFIG_FILE="/etc/keepalived/service_check.conf"
@@ -18,10 +18,10 @@ TIMER_FILE="/tmp/keepalive_recovery_timer"
 STATE_FILE="/tmp/keepalive_health_state"
 
 # ------------------------------------------------------------------------------
-# 설정 파일 로드
+# Load config file
 # ------------------------------------------------------------------------------
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - [FAIL] - 설정 파일 없음: $CONFIG_FILE" >&2
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [FAIL] - Config file not found: $CONFIG_FILE" >&2
     exit 1
 fi
 
@@ -31,7 +31,7 @@ source "$CONFIG_FILE"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
 
 # ------------------------------------------------------------------------------
-# 로그 함수
+# Logging function
 # ------------------------------------------------------------------------------
 log_msg() {
     local level="$1"
@@ -40,7 +40,7 @@ log_msg() {
 }
 
 # ------------------------------------------------------------------------------
-# 포트 체크 (즉시 검증용 - 결과 반환만)
+# Port check (for immediate verification — result only)
 # ------------------------------------------------------------------------------
 verify_ports() {
     [ "${#PORT_LIST[@]}" -eq 0 ] && return 0
@@ -53,14 +53,14 @@ verify_ports() {
     done
 
     if [ "${#failed[@]}" -gt 0 ]; then
-        log_msg "WARN" "MASTER 승격 후 포트 미응답: ${failed[*]}"
+        log_msg "WARN" "Port(s) not responding after MASTER promotion: ${failed[*]}"
         return 1
     fi
     return 0
 }
 
 # ------------------------------------------------------------------------------
-# 프로세스 체크 (즉시 검증용 - 결과 반환만)
+# Process check (for immediate verification — result only)
 # ------------------------------------------------------------------------------
 verify_processes() {
     [ "${#PROCESS_LIST[@]}" -eq 0 ] && return 0
@@ -73,52 +73,52 @@ verify_processes() {
     done
 
     if [ "${#failed[@]}" -gt 0 ]; then
-        log_msg "WARN" "MASTER 승격 후 프로세스 미실행: ${failed[*]}"
+        log_msg "WARN" "Process(es) not running after MASTER promotion: ${failed[*]}"
         return 1
     fi
     return 0
 }
 
 # ------------------------------------------------------------------------------
-# 메인
+# Main
 # ------------------------------------------------------------------------------
 main() {
     local hostname host_ip
     hostname=$(hostname 2>/dev/null)
     host_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 
-    # MASTER 승격 이벤트 로그
+    # Log MASTER promotion event
     log_msg "INFO" "══════════════════════════════════════════════════════════"
-    log_msg "INFO" "VRRP MASTER 승격: ${hostname} (${host_ip})"
+    log_msg "INFO" "VRRP MASTER promoted: ${hostname} (${host_ip})"
     log_msg "INFO" "══════════════════════════════════════════════════════════"
 
-    # Failback 완료 처리 — 안정화 타이머 파일 정리
+    # Failback completion — clean up stabilization timer file
     if [ -f "$TIMER_FILE" ]; then
         local start_time elapsed
         start_time=$(cat "$TIMER_FILE" 2>/dev/null)
         if [ -n "$start_time" ]; then
             elapsed=$(( $(date +%s) - start_time ))
-            log_msg "RECOVERY" "Failback 안정화 완료 — 총 ${elapsed}초 경과 후 MASTER 복귀"
+            log_msg "RECOVERY" "Failback stabilization complete — MASTER restored after ${elapsed}s"
         fi
         rm -f "$TIMER_FILE"
     fi
 
-    # 상태 파일 정상화 (헬스체크 스크립트와 상태 동기화)
+    # Reset state file (sync with health check script)
     echo "ok" > "$STATE_FILE"
 
-    # 승격 직후 서비스 상태 즉시 검증
-    log_msg "INFO" "MASTER 승격 후 서비스 상태 즉시 점검"
+    # Immediately verify service status after promotion
+    log_msg "INFO" "Verifying service status immediately after MASTER promotion"
 
     local all_ok=true
     verify_ports     || all_ok=false
     verify_processes || all_ok=false
 
     if $all_ok; then
-        log_msg "SUCCESS" "MASTER 승격 후 서비스 상태 정상 — HA 전환 완료"
+        log_msg "SUCCESS" "Service status healthy after MASTER promotion — HA failover complete"
     else
-        log_msg "WARN" "MASTER 승격 후 일부 서비스 비정상 감지"
-        log_msg "WARN" "keepalived track_script 가 자동으로 재판정합니다"
-        log_msg "WARN" "즉시 조치 필요: tail -f ${LOG_FILE}"
+        log_msg "WARN" "Some services are unhealthy after MASTER promotion"
+        log_msg "WARN" "keepalived track_script will re-evaluate automatically"
+        log_msg "WARN" "Immediate action required: tail -f ${LOG_FILE}"
     fi
 }
 

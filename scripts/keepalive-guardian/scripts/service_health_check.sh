@@ -1,27 +1,28 @@
 #!/bin/bash
 
 ################################################################################
-# Keepalive Guardian - 서비스 헬스체크 스크립트
+# Keepalive Guardian - Service Health Check Script
 #
-# 위치: /usr/local/bin/service_health_check.sh
-# 목적: 포트 / 프로세스 / DB 복제 상태 종합 점검
-# 반환: exit 0 (정상), exit 1 (장애 또는 Failback 안정화 대기 중)
-# 호출: Keepalived track_script (HEALTH_CHECK_INTERVAL 주기)
+# Location: /usr/local/bin/service_health_check.sh
+# Purpose:  Comprehensive check of port / process / DB replication status
+# Returns:  exit 0 (healthy), exit 1 (failure or failback stabilization pending)
+# Called:   Keepalived track_script (every HEALTH_CHECK_INTERVAL seconds)
 #
-# Failback 안정화 동작:
-#   장애 복구 시 즉시 MASTER로 복귀하지 않고,
-#   FAILBACK_DELAY 동안 연속 정상 상태 확인 후 우선순위 복구 허용
+# Failback stabilization behavior:
+#   After service recovery, does not immediately return to MASTER.
+#   Waits for FAILBACK_DELAY seconds of continuous healthy state
+#   before allowing priority recovery.
 ################################################################################
 
 CONFIG_FILE="/etc/keepalived/service_check.conf"
-TIMER_FILE="/tmp/keepalive_recovery_timer"  # Failback 안정화 타이머 시작 시각 저장
-STATE_FILE="/tmp/keepalive_health_state"    # 이전 상태 추적 (ok / fail / recovering)
+TIMER_FILE="/tmp/keepalive_recovery_timer"  # Stores failback stabilization timer start time
+STATE_FILE="/tmp/keepalive_health_state"    # Tracks previous state (ok / fail / recovering)
 
 # ------------------------------------------------------------------------------
-# 설정 파일 로드
+# Load config file
 # ------------------------------------------------------------------------------
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - [FAIL] - 설정 파일 없음: $CONFIG_FILE" >&2
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [FAIL] - Config file not found: $CONFIG_FILE" >&2
     exit 1
 fi
 
@@ -31,7 +32,7 @@ source "$CONFIG_FILE"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
 
 # ------------------------------------------------------------------------------
-# 로그 함수
+# Logging function
 # ------------------------------------------------------------------------------
 log_msg() {
     local level="$1"
@@ -40,8 +41,8 @@ log_msg() {
 }
 
 # ------------------------------------------------------------------------------
-# 포트 체크
-# TCP 연결 가능 여부 확인 (타임아웃 2초)
+# Port check
+# Check TCP connectivity (timeout 2s)
 # ------------------------------------------------------------------------------
 check_ports() {
     [ "${#PORT_LIST[@]}" -eq 0 ] && return 0
@@ -54,15 +55,15 @@ check_ports() {
     done
 
     if [ "${#failed_ports[@]}" -gt 0 ]; then
-        log_msg "FAIL" "포트 접근 불가: ${failed_ports[*]}"
+        log_msg "FAIL" "Port(s) unreachable: ${failed_ports[*]}"
         return 1
     fi
     return 0
 }
 
 # ------------------------------------------------------------------------------
-# 프로세스 체크
-# pgrep -f <name> 으로 실행 여부 확인
+# Process check
+# Check process existence via pgrep -f <name>
 # ------------------------------------------------------------------------------
 check_processes() {
     [ "${#PROCESS_LIST[@]}" -eq 0 ] && return 0
@@ -75,16 +76,16 @@ check_processes() {
     done
 
     if [ "${#failed_procs[@]}" -gt 0 ]; then
-        log_msg "FAIL" "프로세스 미실행: ${failed_procs[*]}"
+        log_msg "FAIL" "Process(es) not running: ${failed_procs[*]}"
         return 1
     fi
     return 0
 }
 
 # ------------------------------------------------------------------------------
-# DB 복제 상태 체크
-# SHOW REPLICA STATUS\G 기반 IO/SQL 스레드 및 복제 지연 확인
-# DB_ENABLED=no 이면 체크 건너뜀
+# DB replication check
+# Check IO/SQL threads and replication lag via SHOW REPLICA STATUS
+# Skipped if DB_ENABLED=no
 # ------------------------------------------------------------------------------
 check_db() {
     [ "$DB_ENABLED" != "yes" ] && return 0
@@ -99,28 +100,28 @@ check_db() {
         -e "SHOW REPLICA STATUS\G" 2>/dev/null)
 
     if [ -z "$result" ]; then
-        log_msg "FAIL" "DB 연결 실패 (${DB_HOST}:${DB_PORT})"
+        log_msg "FAIL" "DB connection failed (${DB_HOST}:${DB_PORT})"
         return 1
     fi
 
-    # IO Thread 확인
+    # IO Thread check
     if ! echo "$result" | grep -q "Replica_IO_Running: Yes"; then
-        log_msg "FAIL" "DB 복제 IO 스레드 비정상"
+        log_msg "FAIL" "DB replication IO thread is not running"
         return 1
     fi
 
-    # SQL Thread 확인
+    # SQL Thread check
     if ! echo "$result" | grep -q "Replica_SQL_Running: Yes"; then
-        log_msg "FAIL" "DB 복제 SQL 스레드 비정상"
+        log_msg "FAIL" "DB replication SQL thread is not running"
         return 1
     fi
 
-    # 복제 지연 확인
+    # Replication lag check
     local lag
     lag=$(echo "$result" | grep "Seconds_Behind_Source:" | awk '{print $2}')
     if [ -n "$lag" ] && [ "$lag" != "NULL" ]; then
         if [ "$lag" -gt "$REPLICATION_LAG_LIMIT" ] 2>/dev/null; then
-            log_msg "FAIL" "DB 복제 지연 임계값 초과: ${lag}초 (허용: ${REPLICATION_LAG_LIMIT}초)"
+            log_msg "FAIL" "DB replication lag exceeded threshold: ${lag}s (limit: ${REPLICATION_LAG_LIMIT}s)"
             return 1
         fi
     fi
@@ -129,39 +130,39 @@ check_db() {
 }
 
 # ------------------------------------------------------------------------------
-# 메인
+# Main
 # ------------------------------------------------------------------------------
 main() {
     local prev_state="ok"
     [ -f "$STATE_FILE" ] && prev_state=$(cat "$STATE_FILE" 2>/dev/null)
 
-    # 모든 체크 수행 — 실패 항목 전체 로그 수집 후 판정
+    # Run all checks — collect all failures before final judgment
     local all_ok=true
     check_ports     || all_ok=false
     check_processes || all_ok=false
     check_db        || all_ok=false
 
-    # ── 장애 상태 ──────────────────────────────────────────────────────────────
+    # ── Failure state ────────────────────────────────────────────────────────────
     if ! $all_ok; then
         if [ "$prev_state" == "recovering" ]; then
-            log_msg "FAIL" "복구 대기 중 재장애 발생 — Failback 타이머 초기화"
+            log_msg "FAIL" "Re-failure during recovery — Failback timer reset"
         fi
         rm -f "$TIMER_FILE"
         echo "fail" > "$STATE_FILE"
         exit 1
     fi
 
-    # ── 정상 상태 — Failback 안정화 처리 ──────────────────────────────────────
+    # ── Healthy state — Failback stabilization ──────────────────────────────────
 
-    # 장애 직후 첫 번째 정상 감지: 안정화 타이머 시작
+    # First healthy check after failure: start stabilization timer
     if [ "$prev_state" == "fail" ]; then
         date +%s > "$TIMER_FILE"
         echo "recovering" > "$STATE_FILE"
-        log_msg "INFO" "서비스 복구 감지 — Failback 안정화 타이머 시작 (${FAILBACK_DELAY}초 필요)"
-        exit 1  # 안정화 미완료 — 우선순위 복구 지연
+        log_msg "INFO" "Service recovery detected — Failback stabilization timer started (${FAILBACK_DELAY}s required)"
+        exit 1  # Stabilization incomplete — delay priority recovery
     fi
 
-    # 안정화 타이머 진행 중
+    # Stabilization timer in progress
     if [ -f "$TIMER_FILE" ]; then
         local start_time elapsed remaining
         start_time=$(cat "$TIMER_FILE" 2>/dev/null)
@@ -169,23 +170,23 @@ main() {
         remaining=$(( FAILBACK_DELAY - elapsed ))
 
         if [ "$elapsed" -lt "$FAILBACK_DELAY" ]; then
-            # 60초 간격으로만 로그 출력 (2초 주기 노이즈 방지)
+            # Log every 60s only (avoid noise from 2s polling interval)
             if [ $(( elapsed % 60 )) -lt 3 ]; then
-                log_msg "INFO" "Failback 안정화 진행 중: ${elapsed}/${FAILBACK_DELAY}초 (${remaining}초 남음)"
+                log_msg "INFO" "Failback stabilization in progress: ${elapsed}/${FAILBACK_DELAY}s (${remaining}s remaining)"
             fi
-            exit 1  # 안정화 미완료 — MASTER 복귀 지연
+            exit 1  # Stabilization incomplete — delay MASTER recovery
         fi
 
-        # 안정화 완료 → MASTER 우선순위 복구 허용
-        log_msg "RECOVERY" "Failback 안정화 완료 (${elapsed}초 경과) — MASTER 우선순위 복구 허용"
+        # Stabilization complete — allow MASTER priority recovery
+        log_msg "RECOVERY" "Failback stabilization complete (${elapsed}s elapsed) — MASTER priority recovery allowed"
         rm -f "$TIMER_FILE"
         echo "ok" > "$STATE_FILE"
         exit 0
     fi
 
-    # 완전 정상 상태
+    # Fully healthy state
     if [ "$prev_state" != "ok" ]; then
-        log_msg "SUCCESS" "모든 헬스체크 정상"
+        log_msg "SUCCESS" "All health checks passed"
         echo "ok" > "$STATE_FILE"
     fi
 
