@@ -43,6 +43,15 @@ OpenSSL과 OpenSSH의 보안 취약점(CVE)을 패치하는 자동화 스크립�
 - **사용 사례**: OpenSSL/OpenSSH 보안 패치 적용, CVE 취약점 조치, 패치 컴플라이언스 확인
 - **지원 환경**: Rocky Linux 9.x, RHEL 9.x
 
+### 고가용성 (HA)
+
+#### [Keepalive Guardian](scripts/keepalive-guardian/)
+L4 스위치 없이 Keepalived VRRP 기반으로 Active-Standby HA 환경을 자동 구성하는 스크립트입니다. 두 서버에서 각각 `install.sh`를 실행하면 VIP Failover 구성이 완료됩니다.
+
+- **주요 기능**: VRRP 기반 VIP 자동 Failover, 포트/프로세스/DB 복제 다층 헬스체크, 안정화 시간 기반 Failback, 오프라인 RPM 설치 지원
+- **사용 사례**: L4 없이 서버 이중화, Active-Standby HA 구성, DB 복제 환경 장애 자동 전환
+- **지원 환경**: Rocky Linux 8, 9 (RHEL 계열)
+
 ## 설치 방법
 
 ### 전체 스크립트 설치
@@ -83,9 +92,21 @@ linux-ez-kit/
 │   ├── vulnerabilty-check/             # 취약점 검사 스크립트
 │   │   ├── check_react_nextjs_vulnerability.sh
 │   │   └── README.md
-│   └── ssl_ssh_patch/                  # OpenSSL/OpenSSH 보안 패치 스크립트
-│       ├── patch_script.sh
-│       ├── openssh/                    # OpenSSH 패키지 RPM
-│       ├── openssl/                    # OpenSSL 패키지 RPM
-│       └── README.md
+│   ├── ssl_ssh_patch/                  # OpenSSL/OpenSSH 보안 패치 스크립트
+│   │   ├── patch_script.sh
+│   │   ├── openssh/                    # OpenSSH 패키지 RPM
+│   │   ├── openssl/                    # OpenSSL 패키지 RPM
+│   │   └── README.md
+│   └── keepalive-guardian/             # Keepalived 기반 Active-Standby HA 구성
+│       ├── install.sh                  # 설치 자동화 스크립트 (대화형 / 비대화형)
+│       ├── README.md
+│       ├── conf/                       # 설정 파일
+│       │   ├── install.conf            # 비대화형 설치용 설정 파일
+│       │   ├── keepalived.conf.template # Keepalived VRRP 설정 템플릿
+│       │   └── service_check.conf      # 헬스체크 대상 설정 (포트/프로세스/DB)
+│       ├── scripts/                    # 동작 스크립트
+│       │   ├── service_health_check.sh    # 헬스체크 스크립트 (Failover 판정)
+│       │   ├── service_recovery_check.sh  # MASTER 승격 알림 스크립트
+│       │   └── download_keepalived_rpms.sh # RPM 패키지 갱신 스크립트
+│       └── install_package/            # 오프라인 설치용 RPM 패키지
 ```
