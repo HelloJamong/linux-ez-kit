@@ -67,6 +67,7 @@ keepalive-guardian/
 │   └── service_check.conf            # 헬스체크 환경 변수 설정 파일
 ├── scripts/                          # 동작 스크립트
 │   ├── check_environment.sh          # 환경 점검 및 RPM 설치 스크립트 (선택)
+│   ├── download_keepalived_rpms.sh   # RPM 패키지 다운로드 스크립트 (온라인 환경용)
 │   ├── service_health_check.sh       # 장애 판정 스크립트
 │   └── service_recovery_check.sh     # MASTER 승격 알림 스크립트
 └── install_package/                  # 오프라인 설치용 RPM 패키지
@@ -202,6 +203,44 @@ sudo ./install.sh --config conf/install.conf --yes
 10. 로그 로테이션 설정 (`/etc/logrotate.d/service-ha-check`)
 11. keepalived 서비스 시작 및 자동 시작 등록
 12. 설치 결과 검증
+
+---
+
+## RPM 패키지 갱신 (download_keepalived_rpms.sh)
+
+`install_package/` 폴더에는 Rocky Linux 9 기준 RPM이 사전 포함되어 있어 별도 다운로드 없이 설치 가능합니다.
+아래 상황에서는 `scripts/download_keepalived_rpms.sh` 를 사용하여 RPM을 새로 수집합니다.
+
+| 상황 | 설명 |
+|------|------|
+| keepalived 버전 업데이트 | 최신 버전 RPM 재수집 |
+| Rocky Linux 8 환경 적용 | 현재 포함된 RPM은 Rocky 9 기준 |
+| MariaDB 패키지 추가 | DB 복제 체크 활성화 시 필요 |
+
+> **주의**: 반드시 **온라인 환경**의 Rocky Linux 서버에서 실행해야 합니다.
+
+### 사용법
+
+```bash
+# Keepalived RPM만 다운로드
+sudo ./scripts/download_keepalived_rpms.sh
+
+# Keepalived + MariaDB client RPM 함께 다운로드 (DB 복제 체크 사용 시)
+sudo ./scripts/download_keepalived_rpms.sh --with-mariadb
+```
+
+### 실행 후 처리
+
+```bash
+# 1. 다운로드된 RPM을 install_package/ 로 복사
+cp keepalived-rpms-rocky9/*.rpm install_package/
+
+# 2. 오프라인 서버로 프로젝트 전체 전송
+scp -r keepalive-guardian/ user@offline-server:/tmp/
+
+# 3. 오프라인 서버에서 설치
+sudo ./install.sh
+```
 
 ---
 
