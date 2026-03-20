@@ -60,13 +60,15 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 keepalive-guardian/
 ├── README.md                         # 사용 가이드 (이 문서)
 ├── IMPLEMENTATION_SPEC.md            # 구현 정의서 (참고 문서)
-├── check_environment.sh              # 환경 점검 및 RPM 설치 스크립트 (선택)
 ├── install.sh                        # 설치 자동화 스크립트 (메인)
-├── install.conf                      # 비대화형 설치 설정 파일
-├── keepalived.conf.template          # Keepalived 설정 템플릿
-├── service_check.conf                # 헬스체크 환경 변수 설정 파일
-├── service_health_check.sh           # 장애 판정 스크립트
-├── service_recovery_check.sh         # MASTER 승격 알림 스크립트
+├── conf/                             # 설정 파일
+│   ├── install.conf                  # 비대화형 설치 설정 파일
+│   ├── keepalived.conf.template      # Keepalived 설정 템플릿
+│   └── service_check.conf            # 헬스체크 환경 변수 설정 파일
+├── scripts/                          # 동작 스크립트
+│   ├── check_environment.sh          # 환경 점검 및 RPM 설치 스크립트 (선택)
+│   ├── service_health_check.sh       # 장애 판정 스크립트
+│   └── service_recovery_check.sh     # MASTER 승격 알림 스크립트
 └── install_package/                  # 오프라인 설치용 RPM 패키지
     ├── keepalived-*.rpm
     └── (의존성 패키지)
@@ -110,7 +112,7 @@ firewall-cmd --list-rich-rules | grep vrrp
 
 ### 1. 헬스체크 설정 파일 편집
 
-`service_check.conf` 파일을 환경에 맞게 수정합니다 (양쪽 서버 동일하게 적용):
+`conf/service_check.conf` 파일을 환경에 맞게 수정합니다 (양쪽 서버 동일하게 적용):
 
 ```bash
 # 체크할 프로세스 목록
@@ -148,18 +150,18 @@ sudo ./install.sh
 
 #### 비대화형 설치 (설정 파일 사용)
 
-`install.conf` 파일을 미리 편집한 후 실행합니다.
+`conf/install.conf` 파일을 미리 편집한 후 실행합니다.
 
 ```bash
 # install.conf 편집 (Active 서버)
-vi install.conf
+vi conf/install.conf
 # ROLE=active
 # VIP=192.168.0.100
 # PEER_IP=192.168.0.20   ← Standby 서버 IP
 # AUTH_PASSWORD=KAGrd251  ← 양쪽 동일하게 설정
 
 # Active 서버에서 실행
-sudo ./install.sh --config install.conf
+sudo ./install.sh --config conf/install.conf
 
 # install.conf 편집 (Standby 서버)
 # ROLE=standby
@@ -168,13 +170,13 @@ sudo ./install.sh --config install.conf
 # AUTH_PASSWORD=KAGrd251  ← 양쪽 동일하게 설정
 
 # Standby 서버에서 실행
-sudo ./install.sh --config install.conf
+sudo ./install.sh --config conf/install.conf
 
 # 확인 프롬프트 없이 자동 진행
-sudo ./install.sh --config install.conf --yes
+sudo ./install.sh --config conf/install.conf --yes
 ```
 
-`install.conf` 주요 설정 항목:
+`conf/install.conf` 주요 설정 항목:
 
 | 항목 | 설명 | Active | Standby |
 |------|------|--------|---------|
@@ -249,7 +251,7 @@ sudo ./install.sh --config install.conf --yes
 기존 설정이 자동 백업된 후 새 설정이 적용됩니다.
 
 ```bash
-sudo ./install.sh --config install.conf
+sudo ./install.sh --config conf/install.conf
 ```
 
 ---

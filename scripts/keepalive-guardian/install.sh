@@ -15,6 +15,8 @@
 # 변수 정의
 # ------------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONF_DIR="${SCRIPT_DIR}/conf"       # 설정 파일 디렉토리
+SCRIPTS_DIR="${SCRIPT_DIR}/scripts" # 동작 스크립트 디렉토리
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR="/backup/keepalive-guardian/backup_${TIMESTAMP}"
 REPORT_FILE="${SCRIPT_DIR}/install_report_${TIMESTAMP}.txt"
@@ -315,13 +317,13 @@ check_preconditions() {
     log_success "keepalived 설치 확인: $(rpm -q keepalived)"
 
     # 템플릿 파일 존재 확인
-    if [ ! -f "${SCRIPT_DIR}/keepalived.conf.template" ]; then
-        error_exit "keepalived.conf.template 파일이 없습니다. (경로: ${SCRIPT_DIR}/keepalived.conf.template)"
+    if [ ! -f "${CONF_DIR}/keepalived.conf.template" ]; then
+        error_exit "keepalived.conf.template 파일이 없습니다. (경로: ${CONF_DIR}/keepalived.conf.template)"
     fi
     log_success "keepalived.conf.template 확인"
 
-    if [ ! -f "${SCRIPT_DIR}/service_check.conf" ]; then
-        error_exit "service_check.conf 파일이 없습니다. (경로: ${SCRIPT_DIR}/service_check.conf)"
+    if [ ! -f "${CONF_DIR}/service_check.conf" ]; then
+        error_exit "service_check.conf 파일이 없습니다. (경로: ${CONF_DIR}/service_check.conf)"
     fi
     log_success "service_check.conf 확인"
 }
@@ -338,7 +340,7 @@ review_service_check_conf() {
 
     print_section "3. service_check.conf 검토"
 
-    local conf_file="${SCRIPT_DIR}/service_check.conf"
+    local conf_file="${CONF_DIR}/service_check.conf"
     if [ ! -f "$conf_file" ]; then
         log_warn "service_check.conf 파일이 없습니다. 설치 후 직접 생성하세요."
         return 0
@@ -675,7 +677,7 @@ generate_keepalived_conf() {
         -e "s/{{HEALTH_CHECK_FALL}}/${HEALTH_CHECK_FALL}/g" \
         -e "s/{{CURRENT_IP}}/${CURRENT_IP}/g" \
         -e "s/{{PEER_IP}}/${PEER_IP}/g" \
-        "${SCRIPT_DIR}/keepalived.conf.template" > /etc/keepalived/keepalived.conf
+        "${CONF_DIR}/keepalived.conf.template" > /etc/keepalived/keepalived.conf
 
     log_success "keepalived.conf 생성 완료: /etc/keepalived/keepalived.conf"
 
@@ -691,7 +693,7 @@ generate_keepalived_conf() {
 deploy_service_check_conf() {
     print_section "7. service_check.conf 배포"
 
-    cp "${SCRIPT_DIR}/service_check.conf" /etc/keepalived/service_check.conf
+    cp "${CONF_DIR}/service_check.conf" /etc/keepalived/service_check.conf
     chmod 600 /etc/keepalived/service_check.conf
     log_success "service_check.conf 배포 완료: /etc/keepalived/service_check.conf"
     log_info "파일 권한 600 설정 완료 (DB 패스워드 보호)"
@@ -708,13 +710,13 @@ deploy_health_check_scripts() {
     local scripts=("service_health_check.sh" "service_recovery_check.sh")
 
     for script in "${scripts[@]}"; do
-        if [ -f "${SCRIPT_DIR}/${script}" ]; then
-            cp "${SCRIPT_DIR}/${script}" /usr/local/bin/
+        if [ -f "${SCRIPTS_DIR}/${script}" ]; then
+            cp "${SCRIPTS_DIR}/${script}" /usr/local/bin/
             chmod +x "/usr/local/bin/${script}"
             log_success "${script} 배포 완료: /usr/local/bin/${script}"
         else
             log_warn "${script} 파일 없음 — 나중에 수동으로 배포하세요"
-            log_info "  위치: ${SCRIPT_DIR}/${script}"
+            log_info "  위치: ${SCRIPTS_DIR}/${script}"
         fi
     done
 }
