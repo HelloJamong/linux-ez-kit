@@ -11,6 +11,8 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 - **자동 백업 및 복구**: 설정 적용 전 자동 백업 및 복구 스크립트 생성
 - **환경별 설정 분리**: 서비스 포트, 프로세스, DB 정보를 외부 파일로 관리
 
+---
+
 ## 시스템 구성
 
 ```
@@ -39,14 +41,18 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 - 사용자 접근은 **Virtual IP(VIP)** 를 통해 이루어집니다
 - Active 서버 장애 시 **Standby 서버가 VIP를 자동 인계**합니다
 - 데이터베이스는 **양방향 Replication** 구조로 동기화됩니다
+- 두 서버 간 VRRP 통신은 **유니캐스트** 방식으로 동작합니다
+
+---
 
 ## 시스템 요구사항
 
 - Rocky Linux 8, 9 또는 RHEL 계열
-- Keepalived 패키지
 - Root 권한
 - 동일 L2 네트워크의 서버 2대
 - (선택) MySQL/MariaDB replication 구성
+
+---
 
 ## 파일 구성
 
@@ -54,8 +60,8 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 keepalive-guardian/
 ├── README.md                         # 사용 가이드 (이 문서)
 ├── IMPLEMENTATION_SPEC.md            # 구현 정의서 (참고 문서)
-├── check_environment.sh              # 환경 점검 및 RPM 설치 스크립트
-├── install.sh                        # 설치 자동화 스크립트
+├── check_environment.sh              # 환경 점검 및 RPM 설치 스크립트 (선택)
+├── install.sh                        # 설치 자동화 스크립트 (메인)
 ├── install.conf                      # 비대화형 설치 설정 파일
 ├── keepalived.conf.template          # Keepalived 설정 템플릿
 ├── service_check.conf                # 헬스체크 환경 변수 설정 파일
@@ -65,6 +71,8 @@ keepalive-guardian/
     ├── keepalived-*.rpm
     └── (의존성 패키지)
 ```
+
+---
 
 ## 장애 판정 기준
 
@@ -76,6 +84,8 @@ keepalive-guardian/
 | 프로세스 체크 | `pgrep -f <process>` | 설정된 모든 프로세스 실행 중 |
 | DB 복제 상태 | `SHOW REPLICA STATUS` | IO/SQL thread 정상, lag < 임계값 |
 | 서버 네트워크 | VRRP advertisement | Keepalived 정상 송신 |
+
+---
 
 ## 설치 및 구성
 
@@ -98,18 +108,7 @@ firewall-cmd --list-rich-rules | grep vrrp
 
 ---
 
-### 1. 환경 점검 및 패키지 설치
-
-```bash
-# 양쪽 서버 모두 실행
-sudo ./check_environment.sh
-```
-
-`install_package/` 폴더의 RPM 패키지를 오프라인으로 설치하고 환경을 점검합니다.
-
----
-
-### 2. 헬스체크 설정 파일 편집
+### 1. 헬스체크 설정 파일 편집
 
 `service_check.conf` 파일을 환경에 맞게 수정합니다 (양쪽 서버 동일하게 적용):
 
@@ -136,11 +135,12 @@ REPLICATION_LAG_LIMIT=30
 
 ---
 
-### 3. 설치 스크립트 실행
+### 2. 설치 스크립트 실행
 
 #### 대화형 설치 (기본)
 
 실행 중 VIP, 서버 역할, 인터페이스 등을 직접 입력합니다.
+`service_check.conf` 현재 설정을 확인하고 편집할 수 있는 검토 단계가 포함됩니다.
 
 ```bash
 sudo ./install.sh
@@ -181,21 +181,78 @@ sudo ./install.sh --config install.conf --yes
 | `ROLE` | 서버 역할 | `active` | `standby` |
 | `VIP` | 가상 IP | 동일 | 동일 |
 | `PEER_IP` | 상대 서버 IP | Standby IP | Active IP |
-| `AUTH_PASSWORD` | VRRP 인증 패스워드 | 동일 | 동일 |
+| `AUTH_PASSWORD` | VRRP 인증 패스워드 (최대 8자) | 동일 | 동일 |
 | `VRRP_INTERFACE` | 네트워크 인터페이스 | 미설정 시 자동 감지 | 미설정 시 자동 감지 |
 
 ---
 
 설치 스크립트는 다음 작업을 자동으로 수행합니다:
 
-1. 사전 조건 확인 (Root 권한, OS, keepalived 설치 여부)
-2. 기존 설정 파일 백업 (`/backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/`)
-3. keepalived.conf 생성 (`/etc/keepalived/keepalived.conf`)
-4. 헬스체크 설정 파일 배포 (`/etc/keepalived/service_check.conf`)
-5. 헬스체크 스크립트 배포 (`/usr/local/bin/`)
-6. 방화벽 VRRP 허용 (firewalld 사용 시)
-7. 로그 로테이션 설정
-8. keepalived 서비스 시작 및 자동 시작 등록
+1. keepalived 패키지 설치 확인 및 설치 (`install_package/` RPM 사용)
+2. 사전 조건 확인 (Root 권한, OS, keepalived 설치 여부)
+3. `service_check.conf` 설정 검토 (대화형 모드)
+4. 설치 정보 입력 (대화형) 또는 설정 파일 로드 (비대화형)
+5. 기존 설정 파일 백업 (`/backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/`)
+6. `keepalived.conf` 생성 (`/etc/keepalived/keepalived.conf`)
+7. `service_check.conf` 배포 (`/etc/keepalived/service_check.conf`)
+8. 헬스체크 스크립트 배포 (`/usr/local/bin/`)
+9. 방화벽 VRRP 허용 (firewalld 사용 시 자동)
+10. 로그 로테이션 설정 (`/etc/logrotate.d/service-ha-check`)
+11. keepalived 서비스 시작 및 자동 시작 등록
+12. 설치 결과 검증
+
+---
+
+## 설치 후 파일 배치 위치
+
+```
+/etc/keepalived/
+├── keepalived.conf          # VRRP 설정 (install.sh 자동 생성)
+└── service_check.conf       # 헬스체크 설정 (권한 600)
+
+/usr/local/bin/
+├── service_health_check.sh      # 장애 판정 스크립트
+└── service_recovery_check.sh    # MASTER 승격 알림 스크립트
+
+/var/log/
+└── service_ha_check.log         # HA 이벤트 로그
+
+/etc/logrotate.d/
+└── service-ha-check             # 로그 로테이션 설정 (30일 보관)
+
+/backup/keepalive-guardian/
+└── backup_YYYYMMDD_HHMMSS/      # 설치 전 자동 백업
+    ├── keepalived.conf
+    ├── service_check.conf
+    ├── service_health_check.sh
+    ├── service_recovery_check.sh
+    └── restore.sh               # 자동 생성된 복구 스크립트
+```
+
+---
+
+## 설치 후 설정 변경
+
+| 변경 항목 | 수정 파일 | 적용 방법 |
+|----------|----------|---------|
+| 감시 포트 / 프로세스 | `/etc/keepalived/service_check.conf` | `systemctl restart keepalived` |
+| DB 체크 설정 | `/etc/keepalived/service_check.conf` | `systemctl restart keepalived` |
+| Failback 대기 시간 | `/etc/keepalived/service_check.conf` | `systemctl restart keepalived` |
+| VIP / 서버 IP | `/etc/keepalived/keepalived.conf` | 양쪽 서버 중지 후 수정 → 재시작 |
+| VRRP 패스워드 | `/etc/keepalived/keepalived.conf` | 양쪽 서버 동시에 수정 → 재시작 |
+| 장애 판정 로직 | `/usr/local/bin/service_health_check.sh` | `systemctl restart keepalived` |
+
+> **VIP / VRRP 패스워드 변경 시 주의**: 양쪽 서버를 동시에 중지한 후 수정하고 재시작해야 합니다.
+> 한쪽만 변경하면 VRRP 통신이 단절되어 VIP 동작이 불안정해집니다.
+
+설정 변경이 많거나 재설치가 필요한 경우 `install.sh` 재실행을 권장합니다.
+기존 설정이 자동 백업된 후 새 설정이 적용됩니다.
+
+```bash
+sudo ./install.sh --config install.conf
+```
+
+---
 
 ## 동작 확인
 
@@ -215,13 +272,9 @@ sudo journalctl -u keepalived -f
 ### 헬스 체크 스크립트 수동 실행
 
 ```bash
-# 장애 판정 스크립트
+# 장애 판정 스크립트 (0: 정상, 1: 장애)
 sudo /usr/local/bin/service_health_check.sh
-echo $?  # 0: 정상, 1: 장애
-
-# Failback 안정화 스크립트
-sudo /usr/local/bin/service_recovery_check.sh
-echo $?  # 0: 안정화 완료, 1: 안정화 중
+echo $?
 ```
 
 ### HA 로그 확인
@@ -230,9 +283,11 @@ echo $?  # 0: 안정화 완료, 1: 안정화 중
 # 실시간 로그 모니터링
 tail -f /var/log/service_ha_check.log
 
-# 최근 Failover/Failback 이벤트 확인
-grep -E "FAILOVER|FAILBACK|PRIORITY" /var/log/service_ha_check.log
+# Failover/Failback 이벤트만 확인
+grep -E "MASTER|RECOVERY|FAIL" /var/log/service_ha_check.log
 ```
+
+---
 
 ## Failover/Failback 동작
 
@@ -256,7 +311,9 @@ grep -E "FAILOVER|FAILBACK|PRIORITY" /var/log/service_ha_check.log
 5. VIP가 Active 서버로 복귀
 ```
 
-**주의**: 즉시 Failback하지 않고 안정화 시간을 두어 서비스 안정성을 확보합니다.
+> **참고**: 즉시 Failback하지 않고 안정화 시간을 두어 서비스 안정성을 확보합니다.
+
+---
 
 ## 테스트 시나리오
 
@@ -268,11 +325,11 @@ Active 서버에서 서비스 중지:
 # 웹 서버 중지
 sudo systemctl stop nginx
 
-# VIP 이동 확인 (Standby 서버로 이동)
-ip addr show | grep <VIP>
+# 헬스체크 확인
+sudo /usr/local/bin/service_health_check.sh; echo "exit: $?"
 
-# Standby 서버에서 VIP 확인
-ip addr show | grep <VIP>
+# VIP 이동 확인 (Standby 서버로 이동 대기)
+watch -n 2 "ip addr show | grep <VIP>"
 ```
 
 ### 2. 프로세스 장애 시뮬레이션
@@ -292,10 +349,14 @@ tail -f /var/log/service_ha_check.log
 sudo systemctl start nginx
 sudo systemctl start mysqld
 
-# 안정화 시간 대기 (기본 5분)
-# 5분 후 VIP가 Active 서버로 복귀 확인
+# 안정화 타이머 진행 상황 확인
+tail -f /var/log/service_ha_check.log
+
+# 안정화 완료 후 VIP 복귀 확인
 ip addr show | grep <VIP>
 ```
+
+---
 
 ## 문제 해결
 
@@ -304,17 +365,13 @@ ip addr show | grep <VIP>
 **원인 1: Keepalived 서비스 미실행**
 
 ```bash
-# 서비스 상태 확인
 sudo systemctl status keepalived
-
-# 서비스 시작
 sudo systemctl start keepalived
 ```
 
 **원인 2: 방화벽에서 VRRP 차단**
 
 ```bash
-# VRRP 프로토콜 허용 (protocol 112)
 sudo firewall-cmd --add-rich-rule='rule protocol value="vrrp" accept' --permanent
 sudo firewall-cmd --reload
 ```
@@ -329,6 +386,14 @@ sudo bash -x /usr/local/bin/service_health_check.sh
 tail -50 /var/log/service_ha_check.log
 ```
 
+**원인 4: 양쪽 서버 VRRP 패스워드 불일치**
+
+```bash
+sudo grep auth_pass /etc/keepalived/keepalived.conf
+```
+
+---
+
 ### DB 복제 체크 실패
 
 **원인: DB 접속 권한 부족**
@@ -340,24 +405,29 @@ GRANT REPLICATION CLIENT ON *.* TO 'healthcheck'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
+---
+
 ### Failback이 발생하지 않는 경우
 
 **원인: 안정화 시간 미달**
 
 ```bash
 # 안정화 타이머 상태 확인
-cat /tmp/service_recovery_timer
+cat /tmp/keepalive_recovery_timer
 
-# service_check.conf에서 FAILBACK_DELAY 조정
-# (너무 길면 Failback이 지연됨)
+# FAILBACK_DELAY 조정 (너무 길면 Failback이 지연됨)
+sudo vi /etc/keepalived/service_check.conf
+sudo systemctl restart keepalived
 ```
+
+---
 
 ## 주의사항
 
-### 1. 네트워크 분리 환경
+### 1. 네트워크 환경
 
 - Active와 Standby 서버는 **동일 L2 네트워크**에 위치해야 합니다
-- VRRP 멀티캐스트 통신이 가능해야 합니다
+- VRRP 통신은 유니캐스트 방식으로 동작합니다 (멀티캐스트 불필요)
 
 ### 2. Split-Brain 방지
 
@@ -366,7 +436,7 @@ cat /tmp/service_recovery_timer
 
 ### 3. 데이터베이스 동기화
 
-- DB Replication 구성이 없으면 `service_check.conf`에서 DB 체크를 비활성화하세요
+- DB Replication 구성이 없으면 `service_check.conf`에서 `DB_ENABLED=no` 로 설정하세요
 - Replication lag이 크면 Failover가 빈번하게 발생할 수 있습니다
 
 ### 4. 원격 작업 주의
@@ -374,24 +444,33 @@ cat /tmp/service_recovery_timer
 - Keepalived 설정 변경 시 VIP가 이동할 수 있습니다
 - **반드시 콘솔 접근이 가능한 상태에서 작업**하세요
 
-### 5. 백업 확인
+### 5. 백업 및 복구
 
-- 설치 전 백업이 `/backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/`에 생성됩니다
-- 복구가 필요하면 백업 디렉토리의 `restore.sh` 스크립트를 실행하세요
+- 설치/재설치 시 기존 설정이 `/backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/`에 자동 백업됩니다
+- 복구가 필요하면 백업 디렉토리의 `restore.sh`를 실행하세요
+
+```bash
+sudo /backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/restore.sh
+```
+
+---
 
 ## 로그 위치
 
 | 로그 파일 | 설명 |
 |-----------|------|
-| `/var/log/service_ha_check.log` | 헬스 체크 및 HA 이벤트 로그 |
-| `/var/log/messages` | Keepalived 시스템 로그 |
+| `/var/log/service_ha_check.log` | 헬스 체크 및 HA 이벤트 로그 (30일 로테이션) |
 | `journalctl -u keepalived` | Keepalived 서비스 로그 |
+
+---
 
 ## 참고 자료
 
 - [Keepalived 공식 문서](https://www.keepalived.org/documentation.html)
 - [VRRP Protocol RFC 5798](https://tools.ietf.org/html/rfc5798)
 - [IMPLEMENTATION_SPEC.md](./IMPLEMENTATION_SPEC.md) - 구현 정의서
+
+---
 
 ## 라이선스
 
