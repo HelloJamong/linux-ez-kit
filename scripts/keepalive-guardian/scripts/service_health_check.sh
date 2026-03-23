@@ -4,7 +4,7 @@
 # Keepalive Guardian - Service Health Check Script
 #
 # Location: /usr/local/bin/service_health_check.sh
-# Purpose:  Comprehensive check of port / process / DB replication status
+# Purpose:  Check port / process status and determine service health
 # Returns:  exit 0 (healthy), exit 1 (failure or failback stabilization pending)
 # Called:   Keepalived track_script (every HEALTH_CHECK_INTERVAL seconds)
 #
@@ -83,53 +83,6 @@ check_processes() {
 }
 
 # ------------------------------------------------------------------------------
-# DB replication check
-# Check IO/SQL threads and replication lag via SHOW REPLICA STATUS
-# Skipped if DB_ENABLED=no
-# ------------------------------------------------------------------------------
-check_db() {
-    [ "$DB_ENABLED" != "yes" ] && return 0
-
-    local result
-    result=$(timeout 5 mysql \
-        -h"$DB_HOST" \
-        -P"$DB_PORT" \
-        -u"$DB_USER" \
-        -p"$DB_PASSWORD" \
-        --connect-timeout=3 \
-        -e "SHOW REPLICA STATUS\G" 2>/dev/null)
-
-    if [ -z "$result" ]; then
-        log_msg "FAIL" "DB connection failed (${DB_HOST}:${DB_PORT})"
-        return 1
-    fi
-
-    # IO Thread check
-    if ! echo "$result" | grep -q "Replica_IO_Running: Yes"; then
-        log_msg "FAIL" "DB replication IO thread is not running"
-        return 1
-    fi
-
-    # SQL Thread check
-    if ! echo "$result" | grep -q "Replica_SQL_Running: Yes"; then
-        log_msg "FAIL" "DB replication SQL thread is not running"
-        return 1
-    fi
-
-    # Replication lag check
-    local lag
-    lag=$(echo "$result" | grep "Seconds_Behind_Source:" | awk '{print $2}')
-    if [ -n "$lag" ] && [ "$lag" != "NULL" ]; then
-        if [ "$lag" -gt "$REPLICATION_LAG_LIMIT" ] 2>/dev/null; then
-            log_msg "FAIL" "DB replication lag exceeded threshold: ${lag}s (limit: ${REPLICATION_LAG_LIMIT}s)"
-            return 1
-        fi
-    fi
-
-    return 0
-}
-
-# ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
 main() {
@@ -140,7 +93,6 @@ main() {
     local all_ok=true
     check_ports     || all_ok=false
     check_processes || all_ok=false
-    check_db        || all_ok=false
 
     # ── Failure state ────────────────────────────────────────────────────────────
     if ! $all_ok; then
