@@ -48,23 +48,34 @@ OpenSSL과 OpenSSH의 보안 취약점(CVE)을 패치하는 자동화 스크립�
 #### [Keepalive Guardian](scripts/keepalive-guardian/)
 L4 스위치 없이 Keepalived VRRP 기반으로 Active-Standby HA 환경을 자동 구성하는 스크립트입니다. 두 서버에서 각각 `install.sh`를 실행하면 VIP Failover 구성이 완료됩니다.
 
-- **주요 기능**: VRRP 기반 VIP 자동 Failover, 포트/프로세스/DB 복제 다층 헬스체크, 안정화 시간 기반 Failback, 오프라인 RPM 설치 지원
-- **사용 사례**: L4 없이 서버 이중화, Active-Standby HA 구성, DB 복제 환경 장애 자동 전환
+- **주요 기능**: VRRP 기반 VIP 자동 Failover, 포트/프로세스 헬스체크, 안정화 시간 기반 Failback, 오프라인 RPM 설치 지원
+- **사용 사례**: L4 없이 서버 이중화, Active-Standby HA 구성, 서비스 장애 자동 전환
 - **지원 환경**: Rocky Linux 8, 9 (RHEL 계열)
 
-## 설치 방법
+## 다운로드
 
-### 전체 스크립트 설치
+### 스크립트별 개별 다운로드
+
+Git 없이 원하는 스크립트만 ZIP 파일로 바로 다운로드할 수 있습니다.
+
+| 스크립트 | 다운로드 |
+|---------|---------|
+| System Status Monitoring | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/system-monitoring) |
+| NIC Bonding Configuration | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/network-bonding) |
+| React/Next.js Vulnerability Check | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/vulnerabilty-check) |
+| OpenSSL/OpenSSH Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/ssl_ssh_patch) |
+| Keepalive Guardian | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/keepalive-guardian) |
+
+> **참고**: 다운로드 링크는 [download-directory.github.io](https://download-directory.github.io) 서비스를 이용합니다.
+> 브라우저에서 링크를 클릭하면 ZIP 파일이 자동으로 다운로드됩니다.
+
+### 전체 스크립트 다운로드 (Git 사용)
 
 ```bash
-# 저장소 클론
 git clone https://github.com/HelloJamong/linux-ez-kit.git
-cd linux-ez-kit
-
-# 원하는 스크립트를 /usr/local/bin에 복사
-sudo cp scripts/system-monitoring/sys_status.sh /usr/local/bin/
-sudo chmod +x /usr/local/bin/sys_status.sh
 ```
+
+## 설치 방법
 
 ### 개별 스크립트 설치
 
