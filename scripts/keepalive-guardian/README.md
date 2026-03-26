@@ -473,6 +473,7 @@ sudo /backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/restore.sh
 - [Keepalived 공식 문서](https://www.keepalived.org/documentation.html)
 - [VRRP Protocol RFC 5798](https://tools.ietf.org/html/rfc5798)
 - [IMPLEMENTATION_SPEC.md](./IMPLEMENTATION_SPEC.md) - 구현 정의서
+- [FAILOVER_SCENARIOS.md](./FAILOVER_SCENARIOS.md) - 장애 전환 시나리오 및 Split-Brain 주의사항
 
 ---
 
