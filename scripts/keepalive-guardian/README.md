@@ -5,11 +5,10 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 ## 주요 기능
 
 - **VIP 기반 Failover**: Keepalived VRRP를 이용한 가상 IP 자동 이동
-- **다층 헬스 체크**: 서비스 포트, 프로세스, DB 복제 상태를 종합 점검
-- **DB 복제 모니터링**: MySQL/MariaDB replication 상태 및 지연 시간 확인
+- **헬스 체크**: 서비스 포트 및 프로세스 실행 여부 종합 점검
 - **안정화 기반 Failback**: 복구 후 지정 시간 동안 연속 정상 확인 후 자동 원복
 - **자동 백업 및 복구**: 설정 적용 전 자동 백업 및 복구 스크립트 생성
-- **환경별 설정 분리**: 서비스 포트, 프로세스, DB 정보를 외부 파일로 관리
+- **환경별 설정 분리**: 서비스 포트, 프로세스 정보를 외부 파일로 관리
 
 ---
 
@@ -50,8 +49,6 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 - Rocky Linux 8, 9 또는 RHEL 계열
 - Root 권한
 - 동일 L2 네트워크의 서버 2대
-- (선택) MySQL/MariaDB replication 구성
-
 ---
 
 ## 파일 구성
@@ -85,7 +82,6 @@ keepalive-guardian/
 |------|-----------|-----------|
 | 포트 체크 | TCP 연결 시도 | 설정된 모든 포트 접근 가능 |
 | 프로세스 체크 | `pgrep -f <process>` | 설정된 모든 프로세스 실행 중 |
-| DB 복제 상태 | `SHOW REPLICA STATUS` | IO/SQL thread 정상, lag < 임계값 |
 | 서버 네트워크 | VRRP advertisement | Keepalived 정상 송신 |
 
 ---
@@ -122,18 +118,8 @@ PROCESS_LIST=(nginx mysqld)
 # 체크할 포트 목록
 PORT_LIST=(80 443 3306)
 
-# 데이터베이스 복제 체크 (사용 시 yes로 변경)
-DB_ENABLED=no
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=healthcheck
-DB_PASSWORD=your_password_here
-
 # Failback 안정화 시간 (초, 권장 60초 이상)
 FAILBACK_DELAY=300
-
-# Replication lag 임계값 (초)
-REPLICATION_LAG_LIMIT=30
 ```
 
 ---
@@ -215,18 +201,14 @@ sudo ./install.sh --config conf/install.conf --yes
 |------|------|
 | keepalived 버전 업데이트 | 최신 버전 RPM 재수집 |
 | Rocky Linux 8 환경 적용 | 현재 포함된 RPM은 Rocky 9 기준 |
-| MariaDB 패키지 추가 | DB 복제 체크 활성화 시 필요 |
 
 > **주의**: 반드시 **온라인 환경**의 Rocky Linux 서버에서 실행해야 합니다.
 
 ### 사용법
 
 ```bash
-# Keepalived RPM만 다운로드
+# Keepalived RPM 다운로드
 sudo ./scripts/download_keepalived_rpms.sh
-
-# Keepalived + MariaDB client RPM 함께 다운로드 (DB 복제 체크 사용 시)
-sudo ./scripts/download_keepalived_rpms.sh --with-mariadb
 ```
 
 ### 실행 후 처리
@@ -277,7 +259,6 @@ sudo ./install.sh
 | 변경 항목 | 수정 파일 | 적용 방법 |
 |----------|----------|---------|
 | 감시 포트 / 프로세스 | `/etc/keepalived/service_check.conf` | `systemctl restart keepalived` |
-| DB 체크 설정 | `/etc/keepalived/service_check.conf` | `systemctl restart keepalived` |
 | Failback 대기 시간 | `/etc/keepalived/service_check.conf` | `systemctl restart keepalived` |
 | VIP / 서버 IP | `/etc/keepalived/keepalived.conf` | 양쪽 서버 중지 후 수정 → 재시작 |
 | VRRP 패스워드 | `/etc/keepalived/keepalived.conf` | 양쪽 서버 동시에 수정 → 재시작 |
@@ -345,7 +326,7 @@ grep -E "MASTER|RECOVERY|FAIL" /var/log/service_ha_check.log
 ### Failback (복구 시)
 
 ```
-1. Active 서버 복구 (서비스/프로세스/DB 정상)
+1. Active 서버 복구 (서비스/프로세스 정상)
 2. 헬스 체크 연속 성공
 3. 안정화 시간 동안 연속 정상 유지 (기본 300초)
 4. Keepalived priority 원복
@@ -435,19 +416,6 @@ sudo grep auth_pass /etc/keepalived/keepalived.conf
 
 ---
 
-### DB 복제 체크 실패
-
-**원인: DB 접속 권한 부족**
-
-```sql
--- healthcheck 사용자 생성 및 권한 부여
-CREATE USER 'healthcheck'@'localhost' IDENTIFIED BY 'password';
-GRANT REPLICATION CLIENT ON *.* TO 'healthcheck'@'localhost';
-FLUSH PRIVILEGES;
-```
-
----
-
 ### Failback이 발생하지 않는 경우
 
 **원인: 안정화 시간 미달**
@@ -475,17 +443,12 @@ sudo systemctl restart keepalived
 - 네트워크 단절 시 두 서버가 모두 MASTER가 될 수 있습니다
 - 이를 방지하려면 추가적인 fence 장치나 quorum 설정이 필요합니다
 
-### 3. 데이터베이스 동기화
-
-- DB Replication 구성이 없으면 `service_check.conf`에서 `DB_ENABLED=no` 로 설정하세요
-- Replication lag이 크면 Failover가 빈번하게 발생할 수 있습니다
-
-### 4. 원격 작업 주의
+### 3. 원격 작업 주의
 
 - Keepalived 설정 변경 시 VIP가 이동할 수 있습니다
 - **반드시 콘솔 접근이 가능한 상태에서 작업**하세요
 
-### 5. 백업 및 복구
+### 4. 백업 및 복구
 
 - 설치/재설치 시 기존 설정이 `/backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/`에 자동 백업됩니다
 - 복구가 필요하면 백업 디렉토리의 `restore.sh`를 실행하세요
