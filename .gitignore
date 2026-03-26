@@ -17,6 +17,9 @@ Thumbs.db
 # OMC (oh-my-claudecode)
 .omc/
 
+# 내보내기 결과물
+/export/
+
 # keepalive-guardian 실행 생성 파일
 scripts/keepalive-guardian/environment_check_report_*.txt
 scripts/keepalive-guardian/install_log_*.txt
