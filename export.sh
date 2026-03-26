@@ -70,11 +70,18 @@ export_project() {
     echo -e "  압축 중: ${CYAN}${project}${NC} → ${output_file}"
 
     tar -czf "$output_file" \
+        --exclude=".omc" \
+        --exclude=".claude" \
+        --exclude=".git" \
         --exclude="*.log" \
         --exclude="*.tmp" \
-        --exclude="environment_check_report_*.txt" \
-        --exclude="install_log_*.txt" \
-        --exclude="install_report_*.txt" \
+        --exclude="*.swp" \
+        --exclude="*.md" \
+        --exclude="*.txt" \
+        --exclude="*.sample" \
+        --exclude="environment_check_report_*" \
+        --exclude="install_log_*" \
+        --exclude="install_report_*" \
         -C "${SCRIPT_DIR}/scripts" \
         "$project" 2>/dev/null
 
