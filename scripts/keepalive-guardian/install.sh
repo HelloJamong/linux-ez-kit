@@ -30,6 +30,11 @@ NON_INTERACTIVE=false      # Set to true when --config option is used
 CONFIG_FILE=""             # Config file path specified by --config
 AUTO_CONFIRM=false         # Auto-approve final confirmation when --yes is used
 
+HEARTBEAT_ENABLED=false    # Set to true when dedicated Heartbeat link is configured
+HEARTBEAT_INTERFACE=""     # Heartbeat interface name
+HB_CURRENT_IP=""           # IP of the Heartbeat interface on this server
+PEER_HB_IP=""              # Peer server's Heartbeat interface IP
+
 # ------------------------------------------------------------------------------
 # Color definitions
 # ------------------------------------------------------------------------------
@@ -200,6 +205,29 @@ load_from_config() {
     # Calculate failback detection count
     HEALTH_CHECK_FALL=$(( (FAILOVER_DELAY + HEALTH_CHECK_INTERVAL - 1) / HEALTH_CHECK_INTERVAL ))
 
+    # Heartbeat interface (optional)
+    if [ -n "$HEARTBEAT_INTERFACE" ]; then
+        HEARTBEAT_ENABLED=true
+        if ! ip link show "$HEARTBEAT_INTERFACE" &>/dev/null; then
+            errors+=("HEARTBEAT_INTERFACE '${HEARTBEAT_INTERFACE}' does not exist.")
+        else
+            HB_CURRENT_IP=$(ip -o -4 addr show "$HEARTBEAT_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+            if [ -z "$HB_CURRENT_IP" ]; then
+                errors+=("No IP assigned to HEARTBEAT_INTERFACE '${HEARTBEAT_INTERFACE}'.")
+            fi
+        fi
+        if [ -z "$PEER_HB_IP" ]; then
+            errors+=("PEER_HB_IP is required when HEARTBEAT_INTERFACE is set.")
+        elif ! validate_ip "$PEER_HB_IP"; then
+            errors+=("Invalid PEER_HB_IP format: '${PEER_HB_IP}'")
+        fi
+    else
+        HEARTBEAT_ENABLED=false
+        HEARTBEAT_INTERFACE="$VRRP_INTERFACE"
+        HB_CURRENT_IP="$CURRENT_IP"
+        PEER_HB_IP="$PEER_IP"
+    fi
+
     # Auto-generate VRRP password if not set
     if [ -z "$AUTH_PASSWORD" ]; then
         AUTH_PASSWORD=$(tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 8 || echo "KAGuard1")
@@ -226,14 +254,64 @@ validate_ip() {
 }
 
 # ------------------------------------------------------------------------------
+# Load existing keepalived.conf for pre-fill (interactive mode)
+# ------------------------------------------------------------------------------
+load_existing_config() {
+    local conf="/etc/keepalived/keepalived.conf"
+    [ -f "$conf" ] || return 0
+
+    echo -e "  ${YELLOW}[INFO] 기존 keepalived 설정이 감지되었습니다. 현재 값을 기본값으로 불러옵니다.${NC}"
+    echo ""
+
+    # Parse existing values
+    local ex_iface ex_vip ex_current_ip ex_peer_ip ex_priority ex_hb_iface ex_hb_ip ex_peer_hb_ip
+
+    ex_iface=$(grep -E "^\s*interface\s+" "$conf" | awk '{print $2}' | head -1)
+    ex_vip=$(grep -A2 "virtual_ipaddress" "$conf" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
+    ex_current_ip=$(grep "unicast_src_ip" "$conf" | awk '{print $2}' | head -1)
+    ex_peer_ip=$(grep -A2 "unicast_peer" "$conf" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
+    ex_priority=$(grep "priority" "$conf" | awk '{print $2}' | head -1)
+    ex_hb_iface=$(grep "dev " "$conf" | grep -oP 'dev\s+\K\S+' | head -1)
+
+    # Determine role from priority
+    if [ "$ex_priority" == "100" ]; then
+        PREFILL_ROLE="active"
+    elif [ "$ex_priority" == "90" ]; then
+        PREFILL_ROLE="standby"
+    fi
+
+    # Set pre-fill values
+    PREFILL_VIP="$ex_vip"
+    PREFILL_IFACE="$ex_hb_iface"          # SERVICE_INTERFACE (dev 지시자)
+    PREFILL_CURRENT_IP="$ex_current_ip"
+    PREFILL_PEER_IP="$ex_peer_ip"
+
+    # Detect Heartbeat (interface != service interface)
+    if [ -n "$ex_hb_iface" ] && [ "$ex_iface" != "$ex_hb_iface" ]; then
+        PREFILL_HB_IFACE="$ex_iface"
+        PREFILL_HB_IP="$ex_current_ip"
+        PREFILL_HB_ENABLED=true
+    else
+        PREFILL_HB_IFACE=""
+        PREFILL_HB_ENABLED=false
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # List network interfaces
 # ------------------------------------------------------------------------------
 list_interfaces() {
+    local exclude="${1:-}"
     ip -o link show | awk '{print $2}' | sed 's/://' | grep -v "^lo$" | grep -v "@" | while read -r iface; do
-        local state ip_addr
+        local state ip_addr label
         state=$(ip -o link show "$iface" 2>/dev/null | awk '{print $9}')
         ip_addr=$(ip -o -4 addr show "$iface" 2>/dev/null | awk '{print $4}' | head -1)
-        printf "    %-20s %-8s %s\n" "$iface" "$state" "${ip_addr:-not assigned}"
+        if [ "$iface" == "$exclude" ]; then
+            label=" (서비스 인터페이스 — 선택 불가)"
+        else
+            label=""
+        fi
+        printf "    %-20s %-8s %-20s%s\n" "$iface" "$state" "${ip_addr:-not assigned}" "$label"
     done
 }
 
@@ -405,6 +483,12 @@ collect_install_info() {
         printf "  │  %-20s %-30s │\n" "Peer IP:"      "${PEER_IP}"
         printf "  │  %-20s %-30s │\n" "Failover delay:" "~$((HEALTH_CHECK_INTERVAL * HEALTH_CHECK_FALL))s (${HEALTH_CHECK_INTERVAL}s x ${HEALTH_CHECK_FALL} fails)"
         printf "  │  %-20s %-30s │\n" "VRRP password:" "${AUTH_PASSWORD}"
+        if $HEARTBEAT_ENABLED; then
+            printf "  │  %-20s %-30s │\n" "Heartbeat IF:"  "${HEARTBEAT_INTERFACE} (IP: ${HB_CURRENT_IP:-not assigned})"
+            printf "  │  %-20s %-30s │\n" "Peer HB IP:"    "${PEER_HB_IP}"
+        else
+            printf "  │  %-20s %-30s │\n" "Heartbeat:"     "미사용 (단일 인터페이스)"
+        fi
         echo -e "${BOLD}  └─────────────────────────────────────────────────────┘${NC}"
         echo ""
 
@@ -422,6 +506,8 @@ collect_install_info() {
     fi
 
     # Interactive mode
+    load_existing_config
+
     echo -e "  Enter information required for keepalived HA configuration."
     echo -e "  ${YELLOW}(Press Enter to use the default value where available)${NC}"
     echo ""
@@ -431,6 +517,9 @@ collect_install_info() {
     echo -e "    1) active  — MASTER server (holds VIP normally, priority 100)"
     echo -e "    2) standby — BACKUP server (takes over VIP on failure, priority 90)"
     echo ""
+    if [ -n "$PREFILL_ROLE" ]; then
+        echo -e "  ${YELLOW}(기존 설정: ${PREFILL_ROLE})${NC}"
+    fi
     while true; do
         read -r -p "  Select role [1/2]: " role_input
         case "$role_input" in
@@ -461,7 +550,10 @@ collect_install_info() {
     echo -e "  Must be in the same subnet as the server IP and must not be in use."
     echo ""
     while true; do
-        read -r -p "  Enter VIP (e.g. 192.168.0.100): " VIP
+        local vip_prompt="  Enter VIP"
+        [ -n "${PREFILL_VIP:-}" ] && vip_prompt="  Enter VIP [default: ${PREFILL_VIP}]"
+        read -r -p "${vip_prompt}: " VIP
+        VIP="${VIP:-${PREFILL_VIP:-}}"
         if validate_ip "$VIP"; then
             echo -e "  → VIP: ${GREEN}${VIP}${NC}"
             break
@@ -478,7 +570,7 @@ collect_install_info() {
     list_interfaces
     echo ""
     local default_iface
-    default_iface=$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v "^lo$" | grep -v "@" | head -1)
+    default_iface="${PREFILL_IFACE:-$(ip -o link show | awk '{print $2}' | sed 's/://' | grep -v "^lo$" | grep -v "@" | head -1)}"
     while true; do
         read -r -p "  Enter interface [default: ${default_iface}]: " VRRP_INTERFACE
         VRRP_INTERFACE="${VRRP_INTERFACE:-$default_iface}"
@@ -519,7 +611,10 @@ collect_install_info() {
     fi
     echo ""
     while true; do
-        read -r -p "  Enter peer server IP: " PEER_IP
+        local peer_prompt="  Enter peer server IP"
+        [ -n "${PREFILL_PEER_IP:-}" ] && peer_prompt="  Enter peer server IP [default: ${PREFILL_PEER_IP}]"
+        read -r -p "${peer_prompt}: " PEER_IP
+        PEER_IP="${PEER_IP:-${PREFILL_PEER_IP:-}}"
         if validate_ip "$PEER_IP"; then
             if [ "$PEER_IP" == "$CURRENT_IP" ]; then
                 echo -e "  ${RED}Same as current server IP. Enter a different IP.${NC}"
@@ -532,6 +627,99 @@ collect_install_info() {
         fi
     done
     echo ""
+
+    # ── Dedicated Heartbeat Link ──────────────────────────────────────────────────
+    echo -e "  ${BOLD}[Dedicated Heartbeat Link (Split-Brain Prevention)]${NC}"
+    echo -e "  두 서버를 직결 케이블로 연결하여 VRRP 신호 전용 경로를 구성합니다."
+    echo -e "  Split-Brain 방지에 효과적이며, 서비스 인터페이스와 VRRP 신호를 분리합니다."
+    echo ""
+    echo -e "  ${YELLOW}※ 사전 조건: 두 서버 간 직결 케이블 연결 후 해당 인터페이스가${NC}"
+    echo -e "  ${YELLOW}   Link Up 상태여야 합니다. (ip link show <iface> → state UP 확인)${NC}"
+    echo ""
+    read -r -p "  Heartbeat 전용 인터페이스를 구성하시겠습니까? [y/N]: " hb_choice
+    echo ""
+
+    if [[ "$hb_choice" =~ ^[Yy]$ ]]; then
+        HEARTBEAT_ENABLED=true
+        echo -e "  사용 가능한 인터페이스 (서비스 인터페이스 ${VRRP_INTERFACE} 제외):"
+        echo ""
+        list_interfaces "$VRRP_INTERFACE"
+        echo ""
+
+        local hb_default="${PREFILL_HB_IFACE:-}"
+        while true; do
+            local hb_iface_prompt="  Heartbeat 인터페이스 입력"
+            [ -n "$hb_default" ] && hb_iface_prompt="  Heartbeat 인터페이스 입력 [default: ${hb_default}]"
+            read -r -p "${hb_iface_prompt}: " HEARTBEAT_INTERFACE
+            HEARTBEAT_INTERFACE="${HEARTBEAT_INTERFACE:-$hb_default}"
+            if [ -z "$HEARTBEAT_INTERFACE" ]; then
+                echo -e "  ${RED}인터페이스명을 입력하세요.${NC}"
+                continue
+            fi
+            if [ "$HEARTBEAT_INTERFACE" == "$VRRP_INTERFACE" ]; then
+                echo -e "  ${RED}서비스 인터페이스와 동일합니다. 다른 인터페이스를 선택하세요.${NC}"
+                continue
+            fi
+            if ! ip link show "$HEARTBEAT_INTERFACE" &>/dev/null; then
+                echo -e "  ${RED}인터페이스를 찾을 수 없습니다. 목록에서 선택하세요.${NC}"
+                continue
+            fi
+
+            # Link Up 상태 확인
+            local hb_state
+            hb_state=$(ip -o link show "$HEARTBEAT_INTERFACE" 2>/dev/null | awk '{print $9}')
+            if [ "$hb_state" != "UP" ]; then
+                echo ""
+                echo -e "  ${YELLOW}[경고] ${HEARTBEAT_INTERFACE} 인터페이스가 Link Up 상태가 아닙니다. (현재: ${hb_state})${NC}"
+                echo -e "  ${YELLOW}Heartbeat 기능이 정상 동작하려면 두 서버 간 케이블이 연결되어야 합니다.${NC}"
+                echo ""
+                read -r -p "  Link Down 상태로 계속 진행하시겠습니까? [y/N]: " force_hb
+                if [[ ! "$force_hb" =~ ^[Yy]$ ]]; then
+                    continue
+                fi
+            fi
+
+            HB_CURRENT_IP=$(ip -o -4 addr show "$HEARTBEAT_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+            if [ -z "$HB_CURRENT_IP" ]; then
+                echo -e "  ${YELLOW}[경고] ${HEARTBEAT_INTERFACE}에 IP가 할당되지 않았습니다.${NC}"
+                echo -e "  ${YELLOW}설치 후 IP를 할당하고 keepalived를 재시작해야 합니다.${NC}"
+                read -r -p "  IP 미할당 상태로 계속 진행하시겠습니까? [y/N]: " force_no_ip
+                if [[ ! "$force_no_ip" =~ ^[Yy]$ ]]; then
+                    continue
+                fi
+            fi
+
+            echo -e "  → Heartbeat 인터페이스: ${GREEN}${HEARTBEAT_INTERFACE}${NC} (IP: ${HB_CURRENT_IP:-not assigned}, State: ${hb_state})"
+            break
+        done
+        echo ""
+
+        # Peer HB IP
+        echo -e "  ${BOLD}[Peer Heartbeat IP]${NC}"
+        echo -e "  상대 서버의 Heartbeat 인터페이스에 할당된 IP를 입력하세요."
+        echo ""
+        while true; do
+            read -r -p "  상대 서버 Heartbeat IP 입력: " PEER_HB_IP
+            if validate_ip "$PEER_HB_IP"; then
+                if [ "$PEER_HB_IP" == "$HB_CURRENT_IP" ]; then
+                    echo -e "  ${RED}현재 서버 HB IP와 동일합니다. 다른 IP를 입력하세요.${NC}"
+                else
+                    echo -e "  → Peer Heartbeat IP: ${GREEN}${PEER_HB_IP}${NC}"
+                    break
+                fi
+            else
+                echo -e "  ${RED}유효한 IP 주소를 입력하세요.${NC}"
+            fi
+        done
+        echo ""
+    else
+        HEARTBEAT_ENABLED=false
+        HEARTBEAT_INTERFACE="$VRRP_INTERFACE"
+        HB_CURRENT_IP="$CURRENT_IP"
+        PEER_HB_IP="$PEER_IP"
+        echo -e "  → Heartbeat 전용 링크 미사용 — VRRP 신호는 서비스 인터페이스(${VRRP_INTERFACE})로 전송됩니다."
+        echo ""
+    fi
 
     # ── Failover detection delay ─────────────────────────────────────────────────
     echo -e "  ${BOLD}[Failover Detection Delay]${NC}"
@@ -580,6 +768,12 @@ collect_install_info() {
     printf "  │  %-20s %-30s │\n" "Peer IP:"      "${PEER_IP}"
     printf "  │  %-20s %-30s │\n" "Failover delay:" "~$((HEALTH_CHECK_INTERVAL * HEALTH_CHECK_FALL))s (${HEALTH_CHECK_INTERVAL}s x ${HEALTH_CHECK_FALL} fails)"
     printf "  │  %-20s %-30s │\n" "VRRP password:" "${AUTH_PASSWORD}"
+    if $HEARTBEAT_ENABLED; then
+        printf "  │  %-20s %-30s │\n" "Heartbeat IF:"  "${HEARTBEAT_INTERFACE} (IP: ${HB_CURRENT_IP:-not assigned})"
+        printf "  │  %-20s %-30s │\n" "Peer HB IP:"    "${PEER_HB_IP}"
+    else
+        printf "  │  %-20s %-30s │\n" "Heartbeat:"     "미사용 (단일 인터페이스)"
+    fi
     echo -e "${BOLD}  └─────────────────────────────────────────────────────┘${NC}"
     echo ""
     read -r -p "  Proceed with installation using the above settings? [y/N]: " final_confirm
@@ -668,20 +862,24 @@ generate_keepalived_conf() {
     sed \
         -e "s/{{ROUTER_ID}}/$(hostname)/g" \
         -e "s/{{VRRP_STATE}}/${VRRP_STATE}/g" \
-        -e "s/{{VRRP_INTERFACE}}/${VRRP_INTERFACE}/g" \
+        -e "s/{{SERVICE_INTERFACE}}/${VRRP_INTERFACE}/g" \
+        -e "s/{{HB_INTERFACE}}/${HEARTBEAT_INTERFACE}/g" \
         -e "s/{{VRRP_ROUTER_ID}}/${VRRP_ROUTER_ID}/g" \
         -e "s/{{VRRP_PRIORITY}}/${VRRP_PRIORITY}/g" \
         -e "s/{{VRRP_VIRTUAL_IP}}/${VIP}/g" \
         -e "s/{{AUTH_PASSWORD}}/${AUTH_PASSWORD}/g" \
         -e "s/{{HEALTH_CHECK_INTERVAL}}/${HEALTH_CHECK_INTERVAL}/g" \
         -e "s/{{HEALTH_CHECK_FALL}}/${HEALTH_CHECK_FALL}/g" \
-        -e "s/{{CURRENT_IP}}/${CURRENT_IP}/g" \
-        -e "s/{{PEER_IP}}/${PEER_IP}/g" \
+        -e "s/{{HB_CURRENT_IP}}/${HB_CURRENT_IP}/g" \
+        -e "s/{{PEER_HB_IP}}/${PEER_HB_IP}/g" \
         "${CONF_DIR}/keepalived.conf.template" > /etc/keepalived/keepalived.conf
 
     log_success "keepalived.conf generated: /etc/keepalived/keepalived.conf"
 
-    # Review generated config
+    if $HEARTBEAT_ENABLED; then
+        log_info "Heartbeat interface: ${HEARTBEAT_INTERFACE} (VRRP signal) / ${VRRP_INTERFACE} (VIP binding)"
+    fi
+
     log_info "Key settings in generated keepalived.conf:"
     grep -E "state|priority|interface|virtual_router_id|virtual_ipaddress|unicast_src_ip|unicast_peer|interval|fall" \
         /etc/keepalived/keepalived.conf | sed 's/^/      /'
@@ -835,7 +1033,12 @@ print_completion() {
     echo -e "  ${BOLD}Configuration Summary:${NC}"
     printf "    %-20s %s\n" "Role:"         "${ROLE} (${VRRP_STATE})"
     printf "    %-20s %s\n" "Virtual IP:"   "${VIP}"
-    printf "    %-20s %s\n" "Interface:"    "${VRRP_INTERFACE}"
+    if $HEARTBEAT_ENABLED; then
+        printf "    %-20s %s\n" "Heartbeat IF:"  "${HEARTBEAT_INTERFACE} → ${PEER_HB_IP}"
+        printf "    %-20s %s\n" "Service IF:"    "${VRRP_INTERFACE} (VIP binding)"
+    else
+        printf "    %-20s %s\n" "Interface:"    "${VRRP_INTERFACE}"
+    fi
     printf "    %-20s %s\n" "Server IP:"    "${CURRENT_IP}"
     printf "    %-20s %s\n" "Peer IP:"      "${PEER_IP}"
     printf "    %-20s %s\n" "Failover:"     "~$((HEALTH_CHECK_INTERVAL * HEALTH_CHECK_FALL))s"
@@ -848,6 +1051,10 @@ print_completion() {
     echo -e "     ${CYAN}ip addr show ${VRRP_INTERFACE} | grep ${VIP}${NC}"
     echo -e "  4. Monitor HA logs:"
     echo -e "     ${CYAN}tail -f /var/log/service_ha_check.log${NC}"
+    if $HEARTBEAT_ENABLED; then
+        echo -e "  * Heartbeat 링크 연결 상태 확인:"
+        echo -e "    ${CYAN}ip link show ${HEARTBEAT_INTERFACE}${NC}"
+    fi
     echo ""
     echo -e "  ${BOLD}Backup location:${NC} ${BACKUP_DIR}"
     echo -e "  ${BOLD}Install report:${NC} ${REPORT_FILE}"
@@ -856,21 +1063,24 @@ print_completion() {
     echo ""
 
     # Write completion info to report
-    cat >> "$REPORT_FILE" <<EOF
-
-======================================================================
-  Installation Complete Report
-======================================================================
-  Completed:  $(date '+%Y-%m-%d %H:%M:%S')
-  Role:       ${ROLE} (${VRRP_STATE}, priority=${VRRP_PRIORITY})
-  Virtual IP: ${VIP}
-  Interface:  ${VRRP_INTERFACE}
-  Server IP:  ${CURRENT_IP}
-  Peer IP:    ${PEER_IP}
-  Failover:   ~$((HEALTH_CHECK_INTERVAL * HEALTH_CHECK_FALL))s (${HEALTH_CHECK_INTERVAL}s x ${HEALTH_CHECK_FALL} fails)
-  Backup:     ${BACKUP_DIR}
-======================================================================
-EOF
+    {
+        echo ""
+        echo "======================================================================"
+        echo "  Installation Complete Report"
+        echo "======================================================================"
+        echo "  Completed:  $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "  Role:       ${ROLE} (${VRRP_STATE}, priority=${VRRP_PRIORITY})"
+        echo "  Virtual IP: ${VIP}"
+        echo "  Interface:  ${VRRP_INTERFACE}"
+        echo "  Server IP:  ${CURRENT_IP}"
+        echo "  Peer IP:    ${PEER_IP}"
+        echo "  Failover:   ~$((HEALTH_CHECK_INTERVAL * HEALTH_CHECK_FALL))s (${HEALTH_CHECK_INTERVAL}s x ${HEALTH_CHECK_FALL} fails)"
+        if $HEARTBEAT_ENABLED; then
+            echo "  Heartbeat:  ${HEARTBEAT_INTERFACE} (IP: ${HB_CURRENT_IP:-not assigned}) → Peer HB: ${PEER_HB_IP}"
+        fi
+        echo "  Backup:     ${BACKUP_DIR}"
+        echo "======================================================================"
+    } >> "$REPORT_FILE"
 }
 
 # ------------------------------------------------------------------------------

@@ -48,7 +48,7 @@ OpenSSL과 OpenSSH의 보안 취약점(CVE)을 패치하는 자동화 스크립�
 #### [Keepalive Guardian](scripts/keepalive-guardian/)
 L4 스위치 없이 Keepalived VRRP 기반으로 Active-Standby HA 환경을 자동 구성하는 스크립트입니다. 두 서버에서 각각 `install.sh`를 실행하면 VIP Failover 구성이 완료됩니다.
 
-- **주요 기능**: VRRP 기반 VIP 자동 Failover, 포트/프로세스 헬스체크, 안정화 시간 기반 Failback, 오프라인 RPM 설치 지원
+- **주요 기능**: VRRP 기반 VIP 자동 Failover, 포트/프로세스 헬스체크, 안정화 시간 기반 Failback, Heartbeat 전용 링크 지원 (Split-Brain 방지), 오프라인 RPM 설치 지원
 - **사용 사례**: L4 없이 서버 이중화, Active-Standby HA 구성, 서비스 장애 자동 전환
 - **지원 환경**: Rocky Linux 8, 9 (RHEL 계열)
 

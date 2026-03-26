@@ -1,0 +1,48 @@
+################################################################################
+# Keepalive Guardian - Non-Interactive Installation Config
+#
+# Usage: sudo ./install.sh --config install.conf [--yes]
+#
+# 1. Copy this file: cp install.conf.sample install.conf
+# 2. Edit values below
+# 3. Run: sudo ./install.sh --config install.conf --yes
+################################################################################
+
+# Server role: active (MASTER, priority=100) or standby (BACKUP, priority=90)
+ROLE=active
+
+# Virtual IP address (must be in the same subnet, not in use)
+VIP=192.168.10.130
+
+# Service network interface (VIP binding interface)
+VRRP_INTERFACE=ens18
+
+# Peer server IP (service interface IP of the other server)
+PEER_IP=192.168.10.124
+
+# Failover detection delay in seconds (minimum: 2, recommended: 10 or more)
+FAILOVER_DELAY=10
+
+# VRRP authentication password (max 8 chars, must match on both servers)
+# Leave empty to auto-generate
+AUTH_PASSWORD=
+
+################################################################################
+# Heartbeat Interface Configuration (Optional — Split-Brain Prevention)
+#
+# Configure a dedicated interface for VRRP signaling to prevent Split-Brain.
+# Prerequisites:
+#   - Direct cable connection between the two servers
+#   - HEARTBEAT_INTERFACE must be Link Up before installation
+#   - IP must be assigned to HEARTBEAT_INTERFACE on both servers
+#
+# Leave HEARTBEAT_INTERFACE empty to disable (VRRP uses service interface).
+################################################################################
+
+# Dedicated Heartbeat interface name (e.g. ens19)
+# Leave empty to disable Heartbeat dedicated link
+HEARTBEAT_INTERFACE=
+
+# IP of the peer server's Heartbeat interface
+# Required when HEARTBEAT_INTERFACE is set
+PEER_HB_IP=

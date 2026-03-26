@@ -9,6 +9,7 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 - **안정화 기반 Failback**: 복구 후 지정 시간 동안 연속 정상 확인 후 자동 원복
 - **자동 백업 및 복구**: 설정 적용 전 자동 백업 및 복구 스크립트 생성
 - **환경별 설정 분리**: 서비스 포트, 프로세스 정보를 외부 파일로 관리
+- **Heartbeat 전용 링크 지원**: Split-Brain 방지를 위한 VRRP 신호 전용 인터페이스 구성
 
 ---
 
@@ -172,6 +173,8 @@ sudo ./install.sh --config conf/install.conf --yes
 | `PEER_IP` | 상대 서버 IP | Standby IP | Active IP |
 | `AUTH_PASSWORD` | VRRP 인증 패스워드 (최대 8자) | 동일 | 동일 |
 | `VRRP_INTERFACE` | 네트워크 인터페이스 | 미설정 시 자동 감지 | 미설정 시 자동 감지 |
+| `HEARTBEAT_INTERFACE` | (선택) Split-Brain 방지용 VRRP 신호 전용 인터페이스 | 미설정 시 비활성화 | 미설정 시 비활성화 |
+| `PEER_HB_IP` | (선택) 상대 서버의 Heartbeat 인터페이스 IP | HEARTBEAT_INTERFACE 설정 시 필수 | HEARTBEAT_INTERFACE 설정 시 필수 |
 
 ---
 
@@ -442,6 +445,7 @@ sudo systemctl restart keepalived
 
 - 네트워크 단절 시 두 서버가 모두 MASTER가 될 수 있습니다
 - 이를 방지하려면 추가적인 fence 장치나 quorum 설정이 필요합니다
+- Split-Brain 방지를 위한 Heartbeat 전용 링크 구성 방법은 [FAILOVER_SCENARIOS.md](./FAILOVER_SCENARIOS.md#36-전용-heartbeat-링크-구성-방법)를 참고하세요.
 
 ### 3. 원격 작업 주의
 

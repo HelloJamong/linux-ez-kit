@@ -204,3 +204,66 @@ keepalived만으로는 Split-Brain을 완벽히 방지하기 어렵습니다.
 
 > 가장 현실적인 예방책은 **두 서버 간 전용 Heartbeat 링크(별도 NIC)**를 구성하는 것입니다.
 > 서비스 트래픽 인터페이스와 VRRP 통신 인터페이스를 분리하면 Split-Brain 가능성을 크게 낮출 수 있습니다.
+
+---
+
+### 3.6 전용 Heartbeat 링크 구성 방법
+
+keepalive-guardian은 `install.sh` 설치 시 Heartbeat 전용 링크를 구성할 수 있습니다.
+
+#### 구성 전 준비사항
+
+1. 두 서버에 NIC가 2개 이상 존재해야 합니다.
+2. 두 서버를 직결 케이블로 연결합니다. (Auto-MDI/X 지원 NIC은 다이렉트 케이블 사용 가능)
+3. Heartbeat 인터페이스에 IP를 할당합니다.
+
+```bash
+# 예: ens19에 임시 IP 할당 (재부팅 시 초기화됨)
+ip addr add 10.0.0.1/30 dev ens19
+ip link set ens19 up
+
+# 영구 설정 (nmcli)
+nmcli con add type ethernet ifname ens19 con-name hb-link ip4 10.0.0.1/30
+nmcli con up hb-link
+```
+
+4. 상대 서버에도 동일하게 IP를 할당합니다. (예: 10.0.0.2/30)
+5. 두 서버 간 통신을 확인합니다.
+
+```bash
+ping 10.0.0.2
+```
+
+#### install.sh 실행 (인터랙티브 모드)
+
+```
+[Dedicated Heartbeat Link (Split-Brain Prevention)]
+  Heartbeat 전용 인터페이스를 구성하시겠습니까? [y/N]: y
+
+  사용 가능한 인터페이스 (서비스 인터페이스 ens18 제외):
+    ens19    UP    10.0.0.1
+
+  Heartbeat 인터페이스 입력: ens19
+  상대 서버 Heartbeat IP 입력: 10.0.0.2
+```
+
+#### install.conf 파일 사용 (non-interactive 모드)
+
+```bash
+VRRP_INTERFACE=ens18
+PEER_IP=192.168.10.124
+HEARTBEAT_INTERFACE=ens19
+PEER_HB_IP=10.0.0.2
+```
+
+#### 구성 결과
+
+```
+[Active 서버 ens18]──── 서비스 트래픽 ────[Standby 서버 ens18]
+        ↓                                          ↓
+      VIP 보유                               BACKUP 대기
+
+[Active 서버 ens19]──── VRRP 신호 (직결) ──[Standby 서버 ens19]
+```
+
+서비스 스위치 장애가 발생해도 VRRP 신호는 직결 케이블로 유지되어 Split-Brain을 방지합니다.

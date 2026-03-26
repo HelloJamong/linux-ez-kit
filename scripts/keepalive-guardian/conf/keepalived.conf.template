@@ -7,7 +7,10 @@
 # Placeholder reference:
 #   {{ROUTER_ID}}              - Hostname of this server (router identifier)
 #   {{VRRP_STATE}}             - MASTER (Active) or BACKUP (Standby)
-#   {{VRRP_INTERFACE}}         - Network interface to bind VIP (e.g. ens18)
+#   {{HB_INTERFACE}}           - Heartbeat interface for VRRP signaling (dedicated link or same as service interface)
+#   {{HB_CURRENT_IP}}          - IP address of the Heartbeat interface on this server
+#   {{PEER_HB_IP}}             - Peer server's Heartbeat interface IP (for unicast_peer)
+#   {{SERVICE_INTERFACE}}      - Service interface to bind VIP (e.g. ens18)
 #   {{VRRP_ROUTER_ID}}         - VRRP group ID, must be unique on the same L2 network (1-255)
 #   {{VRRP_PRIORITY}}          - Priority (Active=100, Standby=90)
 #   {{VRRP_VIRTUAL_IP}}        - Virtual IP address (VIP)
@@ -15,7 +18,6 @@
 #   {{HEALTH_CHECK_INTERVAL}}  - Health check interval in seconds
 #   {{HEALTH_CHECK_FALL}}      - Consecutive failure count to trigger failover
 #                                Failover detection time = INTERVAL x FALL (seconds)
-#   {{PEER_IP}}                - Peer server IP (for unicast_peer configuration)
 ################################################################################
 
 global_defs {
@@ -33,15 +35,15 @@ vrrp_script chk_service {
 
 vrrp_instance VI_1 {
     state {{VRRP_STATE}}
-    interface {{VRRP_INTERFACE}}
+    interface {{HB_INTERFACE}}
     virtual_router_id {{VRRP_ROUTER_ID}}
     priority {{VRRP_PRIORITY}}
     advert_int 1
 
     # Use unicast instead of multicast (supports L2-isolated and Docker mixed environments)
-    unicast_src_ip {{CURRENT_IP}}
+    unicast_src_ip {{HB_CURRENT_IP}}
     unicast_peer {
-        {{PEER_IP}}
+        {{PEER_HB_IP}}
     }
 
     authentication {
@@ -50,7 +52,7 @@ vrrp_instance VI_1 {
     }
 
     virtual_ipaddress {
-        {{VRRP_VIRTUAL_IP}}
+        {{VRRP_VIRTUAL_IP}} dev {{SERVICE_INTERFACE}}
     }
 
     track_script {
