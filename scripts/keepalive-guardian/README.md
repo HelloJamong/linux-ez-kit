@@ -57,7 +57,6 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 ```
 keepalive-guardian/
 ├── README.md                         # 사용 가이드 (이 문서)
-├── IMPLEMENTATION_SPEC.md            # 구현 정의서 (참고 문서)
 ├── install.sh                        # 설치 자동화 스크립트 (메인)
 ├── conf/                             # 설정 파일
 │   ├── install.conf                  # 비대화형 설치 설정 파일
@@ -476,7 +475,6 @@ sudo /backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/restore.sh
 
 - [Keepalived 공식 문서](https://www.keepalived.org/documentation.html)
 - [VRRP Protocol RFC 5798](https://tools.ietf.org/html/rfc5798)
-- [IMPLEMENTATION_SPEC.md](./IMPLEMENTATION_SPEC.md) - 구현 정의서
 - [FAILOVER_SCENARIOS.md](./FAILOVER_SCENARIOS.md) - 장애 전환 시나리오 및 Split-Brain 주의사항
 
 ---
@@ -485,6 +483,3 @@ sudo /backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/restore.sh
 
 MIT License
 
-## 작성자
-
-HelloJamong
