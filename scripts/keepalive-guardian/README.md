@@ -57,6 +57,8 @@ L4 장비 없이 Keepalived를 이용하여 Active-Standby 방식의 서비스 �
 ```
 keepalive-guardian/
 ├── README.md                         # 사용 가이드 (이 문서)
+├── FAILOVER_SCENARIOS.md             # 장애 전환 시나리오 및 Split-Brain 주의사항
+├── MAINTENANCE_MODE_SCENARIOS.md     # 계획 점검 모드 작업 시나리오
 ├── install.sh                        # 설치 자동화 스크립트 (메인)
 ├── conf/                             # 설정 파일
 │   ├── install.conf                  # 비대화형 설치 설정 파일
@@ -66,7 +68,8 @@ keepalive-guardian/
 │   ├── check_environment.sh          # 환경 점검 및 RPM 설치 스크립트 (선택)
 │   ├── download_keepalived_rpms.sh   # RPM 패키지 다운로드 스크립트 (온라인 환경용)
 │   ├── service_health_check.sh       # 장애 판정 스크립트
-│   └── service_recovery_check.sh     # MASTER 승격 알림 스크립트
+│   ├── service_recovery_check.sh     # MASTER 승격 알림 스크립트
+│   └── service_maintenance_mode.sh   # 계획 점검 모드 제어 스크립트
 └── install_package/                  # 오프라인 설치용 RPM 패키지
     ├── keepalived-*.rpm
     └── (의존성 패키지)
@@ -237,7 +240,8 @@ sudo ./install.sh
 
 /usr/local/bin/
 ├── service_health_check.sh      # 장애 판정 스크립트
-└── service_recovery_check.sh    # MASTER 승격 알림 스크립트
+├── service_recovery_check.sh    # MASTER 승격 알림 스크립트
+└── service_maintenance_mode.sh  # 계획 점검 모드 제어 스크립트
 
 /var/log/
 └── service_ha_check.log         # HA 이벤트 로그
@@ -251,8 +255,128 @@ sudo ./install.sh
     ├── service_check.conf
     ├── service_health_check.sh
     ├── service_recovery_check.sh
+    ├── service_maintenance_mode.sh
     └── restore.sh               # 자동 생성된 복구 스크립트
 ```
+
+---
+
+## 계획 점검 모드
+
+서비스 소스 패치, 재기동 테스트처럼 **의도적으로 포트/프로세스가 내려가는 작업**에서는
+헬스체크 실패 로그와 불필요한 priority 변동을 제어하기 위해 점검 모드를 사용할 수 있습니다.
+
+설치 후 제공되는 명령:
+
+```bash
+/usr/local/bin/service_maintenance_mode.sh <command> [options]
+```
+
+### 점검 모드 종류
+
+| 모드 | 동작 | 주 사용처 | 주의사항 |
+|------|------|----------|----------|
+| `bypass` | 점검 중 헬스체크를 강제로 정상(`0`) 처리 | Standby 서버 패치, 전체 서비스 중단을 감수한 계획 작업 | MASTER에서 서비스 중지 시 VIP는 남아 있는데 서비스가 내려갈 수 있음 |
+| `demote` | 점검 중 헬스체크를 강제로 실패(`1`) 처리 | 현재 MASTER의 VIP를 Peer로 넘긴 뒤 패치 | Peer 서버가 정상(`health check 0`)인지 먼저 확인 필요 |
+
+점검 모드는 `/run/keepalive-guardian/maintenance.conf` 플래그 파일로 관리됩니다.
+`/run` 경로를 사용하므로 재부팅 후에는 자동 해제됩니다.
+
+### 명령어
+
+```bash
+# 점검 모드 상태 확인
+sudo /usr/local/bin/service_maintenance_mode.sh status
+
+# 점검 모드 ON (기본: bypass)
+sudo /usr/local/bin/service_maintenance_mode.sh on --reason "standby source patch"
+
+# 점검 모드 ON (명시적 bypass)
+sudo /usr/local/bin/service_maintenance_mode.sh on --mode bypass --reason "standby source patch"
+
+# 점검 모드 ON (MASTER에서 VIP를 Peer로 넘기고 싶을 때)
+sudo /usr/local/bin/service_maintenance_mode.sh on --mode demote --reason "active source patch"
+
+# 점검 모드 OFF + 즉시 서비스 헬스체크 수행
+sudo /usr/local/bin/service_maintenance_mode.sh off
+
+# 점검 모드 OFF만 수행하고 헬스체크 생략
+sudo /usr/local/bin/service_maintenance_mode.sh off --no-check
+
+# 수동 헬스체크
+sudo /usr/local/bin/service_maintenance_mode.sh check
+```
+
+`off` 명령은 점검 중 사용한 내부 상태 파일과 안정화 타이머를 정리한 뒤 헬스체크를 수행합니다.
+서비스가 정상이라면 priority가 다음 keepalived 체크 주기에 즉시 회복될 수 있으므로,
+VIP 원복 시점을 늦추고 싶다면 MASTER 패치 완료 후 원하는 시점에 `off`를 실행하세요.
+
+### 권장 무중단 패치 절차
+
+아래 예시는 VMMG1이 현재 MASTER, VMMG2가 BACKUP인 경우입니다.
+
+#### 1. 양쪽 현재 상태 확인
+
+```bash
+# 양쪽 서버에서 실행
+ip addr show | grep <VIP>
+sudo /usr/local/bin/service_health_check.sh; echo $?
+```
+
+정상 조건:
+
+- VIP는 한쪽 서버에만 존재
+- 양쪽 서버의 health check 결과가 `0`
+
+#### 2. BACKUP 서버 먼저 패치
+
+```bash
+# VMMG2(BACKUP)에서 실행
+sudo /usr/local/bin/service_maintenance_mode.sh on --mode bypass --reason "patch standby"
+
+# 서비스 중지 → 소스 패치 → 서비스 기동
+sudo systemctl stop <service>
+# source patch
+sudo systemctl start <service>
+
+# 점검 모드 해제와 동시에 헬스체크
+sudo /usr/local/bin/service_maintenance_mode.sh off
+```
+
+`off` 결과가 성공(`Service health check passed`)이어야 다음 단계로 진행합니다.
+
+#### 3. MASTER 서버 패치 전 VIP를 BACKUP으로 이동
+
+```bash
+# VMMG1(MASTER)에서 실행
+sudo /usr/local/bin/service_maintenance_mode.sh on --mode demote --reason "move VIP before active patch"
+```
+
+VMMG2에서 VIP가 이동했는지 확인합니다.
+
+```bash
+# VMMG2에서 실행
+ip addr show | grep <VIP>
+```
+
+VIP가 VMMG2로 이동한 뒤 VMMG1을 패치합니다.
+
+```bash
+# VMMG1에서 실행
+sudo systemctl stop <service>
+# source patch
+sudo systemctl start <service>
+
+# 점검 모드 해제와 동시에 헬스체크
+sudo /usr/local/bin/service_maintenance_mode.sh off
+```
+
+`FAILBACK_DELAY`가 설정되어 있으면 VMMG1 서비스 복구 후 안정화 시간이 지난 뒤
+priority가 원복되고 VIP가 다시 VMMG1로 돌아올 수 있습니다.
+
+> **주의**: 양쪽 서버에 동시에 `bypass`를 켠 뒤 MASTER의 서비스를 중지하면
+> keepalived는 정상으로 판단하지만 VIP가 서비스 중지 서버에 남을 수 있습니다.
+> 무중단 패치 목적이라면 반드시 BACKUP 패치 → BACKUP 정상 확인 → MASTER demote → MASTER 패치 순서를 따르세요.
 
 ---
 
@@ -476,10 +600,10 @@ sudo /backup/keepalive-guardian/backup_YYYYMMDD_HHMMSS/restore.sh
 - [Keepalived 공식 문서](https://www.keepalived.org/documentation.html)
 - [VRRP Protocol RFC 5798](https://tools.ietf.org/html/rfc5798)
 - [FAILOVER_SCENARIOS.md](./FAILOVER_SCENARIOS.md) - 장애 전환 시나리오 및 Split-Brain 주의사항
+- [MAINTENANCE_MODE_SCENARIOS.md](./MAINTENANCE_MODE_SCENARIOS.md) - 점검 모드 사용 및 계획 작업 시나리오
 
 ---
 
 ## 라이선스
 
 MIT License
-

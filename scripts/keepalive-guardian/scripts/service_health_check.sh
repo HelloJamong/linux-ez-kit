@@ -14,9 +14,10 @@
 #   before allowing priority recovery.
 ################################################################################
 
-CONFIG_FILE="/etc/keepalived/service_check.conf"
-TIMER_FILE="/tmp/keepalive_recovery_timer"  # Stores failback stabilization timer start time
-STATE_FILE="/tmp/keepalive_health_state"    # Tracks previous state (ok / fail / recovering)
+CONFIG_FILE="${CONFIG_FILE:-/etc/keepalived/service_check.conf}"
+TIMER_FILE="${TIMER_FILE:-/tmp/keepalive_recovery_timer}"  # Stores failback stabilization timer start time
+STATE_FILE="${STATE_FILE:-/tmp/keepalive_health_state}"    # Tracks previous state (ok / fail / recovering)
+MAINT_LAST_LOG_FILE="${MAINT_LAST_LOG_FILE:-/tmp/keepalive_maintenance_last_log}"
 
 # ------------------------------------------------------------------------------
 # Load config file
@@ -29,6 +30,10 @@ fi
 # shellcheck source=/dev/null
 source "$CONFIG_FILE"
 
+LOG_FILE="${LOG_FILE:-/var/log/service_ha_check.log}"
+MAINTENANCE_FILE="${MAINTENANCE_FILE:-/run/keepalive-guardian/maintenance.conf}"
+MAINTENANCE_LOG_INTERVAL="${MAINTENANCE_LOG_INTERVAL:-60}"
+
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
 
 # ------------------------------------------------------------------------------
@@ -38,6 +43,71 @@ log_msg() {
     local level="$1"
     local message="$2"
     echo "$(date '+%Y-%m-%d %H:%M:%S') - [${level}] - ${message}" >> "$LOG_FILE"
+}
+
+# ------------------------------------------------------------------------------
+# Maintenance mode
+# Controlled by: /usr/local/bin/service_maintenance_mode.sh
+#
+# Modes:
+#   bypass : return healthy during planned maintenance
+#   demote : return unhealthy during planned maintenance to move VIP away
+# ------------------------------------------------------------------------------
+get_maintenance_value() {
+    local key="$1"
+    [ -f "$MAINTENANCE_FILE" ] || return 1
+    grep -E "^${key}=" "$MAINTENANCE_FILE" 2>/dev/null | tail -1 | cut -d= -f2-
+}
+
+should_log_maintenance() {
+    local now last_log
+    now=$(date +%s)
+    last_log=0
+    [ -f "$MAINT_LAST_LOG_FILE" ] && last_log=$(cat "$MAINT_LAST_LOG_FILE" 2>/dev/null || echo 0)
+
+    if ! [[ "$last_log" =~ ^[0-9]+$ ]] || [ $((now - last_log)) -ge "$MAINTENANCE_LOG_INTERVAL" ]; then
+        echo "$now" > "$MAINT_LAST_LOG_FILE"
+        return 0
+    fi
+    return 1
+}
+
+handle_maintenance_mode() {
+    [ -f "$MAINTENANCE_FILE" ] || return 0
+
+    local mode reason started_by started_at
+    mode=$(get_maintenance_value "MODE")
+    reason=$(get_maintenance_value "REASON")
+    started_by=$(get_maintenance_value "STARTED_BY")
+    started_at=$(get_maintenance_value "STARTED_AT")
+
+    mode="${mode:-bypass}"
+    reason="${reason:-not specified}"
+    started_by="${started_by:-unknown}"
+    started_at="${started_at:-unknown}"
+
+    rm -f "$TIMER_FILE"
+
+    case "$mode" in
+        bypass)
+            echo "maintenance" > "$STATE_FILE"
+            if should_log_maintenance; then
+                log_msg "MAINT" "Maintenance mode active (bypass) — health check forced healthy; started_at=${started_at}; started_by=${started_by}; reason=${reason}"
+            fi
+            exit 0
+            ;;
+        demote)
+            echo "maintenance-demote" > "$STATE_FILE"
+            if should_log_maintenance; then
+                log_msg "MAINT" "Maintenance mode active (demote) — health check forced unhealthy to move VIP away; started_at=${started_at}; started_by=${started_by}; reason=${reason}"
+            fi
+            exit 1
+            ;;
+        *)
+            log_msg "WARN" "Invalid maintenance mode '${mode}' in ${MAINTENANCE_FILE}; continuing with normal health checks"
+            return 0
+            ;;
+    esac
 }
 
 # ------------------------------------------------------------------------------
@@ -86,6 +156,8 @@ check_processes() {
 # Main
 # ------------------------------------------------------------------------------
 main() {
+    handle_maintenance_mode
+
     local prev_state="ok"
     [ -f "$STATE_FILE" ] && prev_state=$(cat "$STATE_FILE" 2>/dev/null)
 

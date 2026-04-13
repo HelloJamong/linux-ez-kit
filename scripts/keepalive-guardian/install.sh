@@ -820,6 +820,12 @@ backup_configs() {
         backed_up=true
     fi
 
+    if [ -f /usr/local/bin/service_maintenance_mode.sh ]; then
+        cp /usr/local/bin/service_maintenance_mode.sh "${BACKUP_DIR}/service_maintenance_mode.sh"
+        log_success "Backed up: service_maintenance_mode.sh"
+        backed_up=true
+    fi
+
     if ! $backed_up; then
         log_info "No existing config files found — fresh installation"
     fi
@@ -840,6 +846,7 @@ echo "Restoring config files..."
 [ -f "${BACKUP_DIR}/service_check.conf" ]     && cp "${BACKUP_DIR}/service_check.conf"     /etc/keepalived/
 [ -f "${BACKUP_DIR}/service_health_check.sh" ]   && cp "${BACKUP_DIR}/service_health_check.sh"   /usr/local/bin/ && chmod +x /usr/local/bin/service_health_check.sh
 [ -f "${BACKUP_DIR}/service_recovery_check.sh" ] && cp "${BACKUP_DIR}/service_recovery_check.sh" /usr/local/bin/ && chmod +x /usr/local/bin/service_recovery_check.sh
+[ -f "${BACKUP_DIR}/service_maintenance_mode.sh" ] && cp "${BACKUP_DIR}/service_maintenance_mode.sh" /usr/local/bin/ && chmod +x /usr/local/bin/service_maintenance_mode.sh
 
 echo "Starting keepalived service..."
 systemctl start keepalived 2>/dev/null
@@ -959,7 +966,7 @@ deploy_service_check_conf() {
 deploy_health_check_scripts() {
     print_section "8. Deploy Health Check Scripts"
 
-    local scripts=("service_health_check.sh" "service_recovery_check.sh")
+    local scripts=("service_health_check.sh" "service_recovery_check.sh" "service_maintenance_mode.sh")
 
     for script in "${scripts[@]}"; do
         if [ -f "${SCRIPTS_DIR}/${script}" ]; then
@@ -1071,6 +1078,7 @@ verify_installation() {
     [ -f /etc/keepalived/service_check.conf ] && log_success "Config file exists: /etc/keepalived/service_check.conf"
     [ -x /usr/local/bin/service_health_check.sh ]   && log_success "Script exists: /usr/local/bin/service_health_check.sh"
     [ -x /usr/local/bin/service_recovery_check.sh ] && log_success "Script exists: /usr/local/bin/service_recovery_check.sh"
+    [ -x /usr/local/bin/service_maintenance_mode.sh ] && log_success "Script exists: /usr/local/bin/service_maintenance_mode.sh"
 }
 
 # ------------------------------------------------------------------------------
@@ -1105,6 +1113,8 @@ print_completion() {
     echo -e "     ${CYAN}ip addr show ${VRRP_INTERFACE} | grep ${VIP}${NC}"
     echo -e "  4. Monitor HA logs:"
     echo -e "     ${CYAN}tail -f /var/log/service_ha_check.log${NC}"
+    echo -e "  5. Planned maintenance helper:"
+    echo -e "     ${CYAN}/usr/local/bin/service_maintenance_mode.sh status${NC}"
     if $HEARTBEAT_ENABLED; then
         echo -e "  * Heartbeat 링크 연결 상태 확인:"
         echo -e "    ${CYAN}ip link show ${HEARTBEAT_INTERFACE}${NC}"

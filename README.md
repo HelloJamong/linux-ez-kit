@@ -111,6 +111,8 @@ linux-ez-kit/
 │   └── keepalive-guardian/             # Keepalived 기반 Active-Standby HA 구성
 │       ├── install.sh                  # 설치 자동화 스크립트 (대화형 / 비대화형)
 │       ├── README.md
+│       ├── FAILOVER_SCENARIOS.md       # 장애 전환 시나리오 문서
+│       ├── MAINTENANCE_MODE_SCENARIOS.md # 점검 모드 작업 시나리오 문서
 │       ├── conf/                       # 설정 파일
 │       │   ├── install.conf            # 비대화형 설치용 설정 파일
 │       │   ├── keepalived.conf.template # Keepalived VRRP 설정 템플릿
@@ -118,6 +120,7 @@ linux-ez-kit/
 │       ├── scripts/                    # 동작 스크립트
 │       │   ├── service_health_check.sh    # 헬스체크 스크립트 (Failover 판정)
 │       │   ├── service_recovery_check.sh  # MASTER 승격 알림 스크립트
+│       │   ├── service_maintenance_mode.sh # 계획 점검 모드 제어 스크립트
 │       │   └── download_keepalived_rpms.sh # RPM 패키지 갱신 스크립트
 │       └── install_package/            # 오프라인 설치용 RPM 패키지
 ```
