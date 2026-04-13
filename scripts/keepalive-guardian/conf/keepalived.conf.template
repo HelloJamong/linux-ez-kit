@@ -16,6 +16,7 @@
 #   {{VRRP_VIRTUAL_IP}}        - Virtual IP address (VIP)
 #   {{AUTH_PASSWORD}}          - VRRP authentication password (must match on both servers)
 #   {{HEALTH_CHECK_INTERVAL}}  - Health check interval in seconds
+#   {{HEALTH_CHECK_TIMEOUT}}   - Health check script timeout in seconds (must be > INTERVAL x PORT_COUNT x 2)
 #   {{HEALTH_CHECK_FALL}}      - Consecutive failure count to trigger failover
 #                                Failover detection time = INTERVAL x FALL (seconds)
 ################################################################################
@@ -23,11 +24,14 @@
 global_defs {
     router_id {{ROUTER_ID}}
     vrrp_skip_check_adv_addr
+    script_user root
+    enable_script_security
 }
 
 vrrp_script chk_service {
     script "/usr/local/bin/service_health_check.sh"
     interval {{HEALTH_CHECK_INTERVAL}}
+    timeout {{HEALTH_CHECK_TIMEOUT}}
     weight -20
     fall {{HEALTH_CHECK_FALL}}
     rise 1

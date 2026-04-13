@@ -25,6 +25,7 @@ VERSION="v26.03.01"        # Script version (YY.MM.sequence)
 
 VRRP_ROUTER_ID=51          # Unique VRRP group ID within the same L2 network
 HEALTH_CHECK_INTERVAL=2    # Health check interval in seconds (fixed)
+HEALTH_CHECK_TIMEOUT=10    # Health check script timeout in seconds (keepalived kills script if exceeded)
 
 NON_INTERACTIVE=false      # Set to true when --config option is used
 CONFIG_FILE=""             # Config file path specified by --config
@@ -852,6 +853,58 @@ RESTORE_EOF
 }
 
 # ------------------------------------------------------------------------------
+# SELinux Configuration
+# keepalived track_script runs in the keepalived domain. With SELinux enforcing,
+# /dev/tcp port checks inside the script are blocked, causing health checks to
+# always fail. SELinux must be disabled for keepalived to function correctly.
+# ------------------------------------------------------------------------------
+configure_selinux() {
+    print_section "SELinux Configuration"
+
+    if ! command -v getenforce &>/dev/null; then
+        log_info "SELinux tools not found — skipping"
+        return 0
+    fi
+
+    local selinux_status
+    selinux_status=$(getenforce 2>/dev/null)
+
+    case "$selinux_status" in
+        Disabled)
+            log_success "SELinux already disabled — no action required"
+            return 0
+            ;;
+        Permissive|Enforcing)
+            log_warn "SELinux is ${selinux_status} — disabling for keepalived compatibility"
+            log_info "Reason: keepalived track_script /dev/tcp port checks are blocked by SELinux policy"
+            ;;
+        *)
+            log_info "SELinux status: ${selinux_status} — skipping"
+            return 0
+            ;;
+    esac
+
+    # Disable immediately (current boot session)
+    if setenforce 0 2>/dev/null; then
+        log_success "SELinux set to Permissive for current session"
+    else
+        log_warn "setenforce 0 failed — manual intervention may be required"
+    fi
+
+    # Disable permanently in /etc/selinux/config
+    local selinux_config="/etc/selinux/config"
+    if [ -f "$selinux_config" ]; then
+        cp "$selinux_config" "${BACKUP_DIR}/selinux_config.bak"
+        sed -i 's/^SELINUX=.*/SELINUX=disabled/' "$selinux_config"
+        log_success "SELinux=disabled set permanently: ${selinux_config}"
+        log_info "Backup saved: ${BACKUP_DIR}/selinux_config.bak"
+        log_warn "Full effect requires reboot — current session: Permissive (keepalived functions correctly now)"
+    else
+        log_warn "${selinux_config} not found — SELinux may re-enable on reboot"
+    fi
+}
+
+# ------------------------------------------------------------------------------
 # 4. Generate keepalived.conf
 # ------------------------------------------------------------------------------
 generate_keepalived_conf() {
@@ -869,6 +922,7 @@ generate_keepalived_conf() {
         -e "s/{{VRRP_VIRTUAL_IP}}/${VIP}/g" \
         -e "s/{{AUTH_PASSWORD}}/${AUTH_PASSWORD}/g" \
         -e "s/{{HEALTH_CHECK_INTERVAL}}/${HEALTH_CHECK_INTERVAL}/g" \
+        -e "s/{{HEALTH_CHECK_TIMEOUT}}/${HEALTH_CHECK_TIMEOUT}/g" \
         -e "s/{{HEALTH_CHECK_FALL}}/${HEALTH_CHECK_FALL}/g" \
         -e "s/{{HB_CURRENT_IP}}/${HB_CURRENT_IP}/g" \
         -e "s/{{PEER_HB_IP}}/${PEER_HB_IP}/g" \
@@ -1102,6 +1156,7 @@ main() {
     review_service_check_conf
     collect_install_info
     backup_configs
+    configure_selinux
     generate_keepalived_conf
     deploy_service_check_conf
     deploy_health_check_scripts
