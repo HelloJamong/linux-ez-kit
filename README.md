@@ -43,6 +43,15 @@ OpenSSL과 OpenSSH의 보안 취약점(CVE)을 패치하는 자동화 스크립�
 - **사용 사례**: OpenSSL/OpenSSH 보안 패치 적용, CVE 취약점 조치, 패치 컴플라이언스 확인
 - **지원 환경**: Rocky Linux 9.x, RHEL 9.x
 
+### 데이터베이스
+
+#### [DB Migration (Migris)](scripts/db-migration/)
+운영 중인 MariaDB의 스키마 및 데이터를 안전하게 마이그레이션하는 스크립트입니다. 실행 전 자동 백업, 중복 실행 방지, 트랜잭션 기반 안전한 변경 적용을 지원합니다.
+
+- **주요 기능**: 실행 전 전체 DB 자동 백업, 중복 쿼리 스킵(테이블/컬럼/인덱스/레코드), 멀티라인 SQL 지원, 실행 결과 로그 자동 생성
+- **사용 사례**: 운영 DB 스키마 변경, 참조 데이터 삽입, 무중단 데이터 마이그레이션
+- **지원 환경**: Rocky Linux 8, 9 (RHEL 계열), MariaDB 10.11.7 이상
+
 ### 고가용성 (HA)
 
 #### [Keepalive Guardian](scripts/keepalive-guardian/)
@@ -65,6 +74,7 @@ Git 없이 원하는 스크립트만 ZIP 파일로 바로 다운로드할 수 �
 | React/Next.js Vulnerability Check | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/vulnerabilty-check) |
 | OpenSSL/OpenSSH Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/ssl_ssh_patch) |
 | Keepalive Guardian | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/keepalive-guardian) |
+| DB Migration (Migris) | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/db-migration) |
 
 > **참고**: 다운로드 링크는 [download-directory.github.io](https://download-directory.github.io) 서비스를 이용합니다.
 > 브라우저에서 링크를 클릭하면 ZIP 파일이 자동으로 다운로드됩니다.
@@ -123,4 +133,8 @@ linux-ez-kit/
 │       │   ├── service_maintenance_mode.sh # 계획 점검 모드 제어 스크립트
 │       │   └── download_keepalived_rpms.sh # RPM 패키지 갱신 스크립트
 │       └── install_package/            # 오프라인 설치용 RPM 패키지
+│   └── db-migration/                   # MariaDB 스키마/데이터 마이그레이션
+│       ├── migris.sh                   # 마이그레이션 메인 스크립트
+│       ├── all_query.txt.sample        # 마이그레이션 쿼리 샘플
+│       └── README.md
 ```

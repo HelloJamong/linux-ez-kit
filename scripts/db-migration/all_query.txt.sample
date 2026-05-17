@@ -1,0 +1,54 @@
+-- ============================================================================
+-- Migris 마이그레이션 쿼리 샘플 파일
+-- ============================================================================
+-- 이 파일은 샘플 예시입니다.
+-- 실제 사용 시에는 이 파일을 복사하여 all_query.txt로 저장하고 실제 쿼리를 작성하세요.
+--
+-- 사용 방법:
+--   1. cp all_query.txt.sample all_query.txt
+--   2. all_query.txt 파일에 실제 마이그레이션 쿼리 작성
+--   3. ./migris.sh 실행
+-- ============================================================================
+
+-- 예시 1: 테이블에 컬럼 추가
+-- ALTER TABLE your_table ADD COLUMN new_column VARCHAR(100) NULL COMMENT '새로운 컬럼';
+
+-- 예시 2: 인덱스 생성
+-- CREATE INDEX idx_column_name ON your_table (column_name);
+
+-- 예시 3: 테이블 생성
+-- CREATE TABLE `sample_table` (
+--   `id` int(11) NOT NULL AUTO_INCREMENT COMMENT 'ID',
+--   `name` varchar(100) NOT NULL COMMENT '이름',
+--   `created_date` timestamp NOT NULL DEFAULT current_timestamp() COMMENT '생성일시',
+--   PRIMARY KEY (`id`)
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='샘플 테이블';
+
+-- 예시 4: 데이터 삽입
+-- INSERT INTO sample_table (name) VALUES ('샘플 데이터');
+
+-- 예시 5: 데이터 업데이트
+-- UPDATE sample_table SET name = '업데이트된 데이터' WHERE id = 1;
+
+-- 예시 6: 컬럼 수정
+-- ALTER TABLE sample_table MODIFY COLUMN name VARCHAR(200) NOT NULL COMMENT '수정된 이름';
+
+-- 예시 7: VIEW 생성
+-- CREATE OR REPLACE VIEW v_sample AS SELECT id, name FROM sample_table WHERE id > 0;
+
+-- 예시 8: 외래키 추가
+-- ALTER TABLE child_table ADD CONSTRAINT fk_parent FOREIGN KEY (parent_id) REFERENCES parent_table(id);
+
+-- 예시 9: 인덱스 삭제
+-- ALTER TABLE sample_table DROP INDEX idx_old_column;
+
+-- 예시 10: 컬럼 삭제
+-- ALTER TABLE sample_table DROP COLUMN old_column;
+
+-- ============================================================================
+-- 주의사항:
+-- 1. 모든 쿼리문은 세미콜론(;)으로 끝나야 합니다.
+-- 2. 주석은 '--'로 시작합니다.
+-- 3. 멀티라인 쿼리는 한 줄로 작성하거나 적절히 연결되어야 합니다.
+-- 4. CREATE TABLE, CREATE VIEW 등 복잡한 구문은 세미콜론으로 완전히 닫아야 합니다.
+-- ============================================================================

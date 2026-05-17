@@ -24,4 +24,7 @@ Thumbs.db
 scripts/keepalive-guardian/environment_check_report_*.txt
 scripts/keepalive-guardian/install_log_*.txt
 scripts/keepalive-guardian/install_report_*.txt
+
+# db-migration: 실제 쿼리 파일 (서비스 DB 정보 포함)
+scripts/db-migration/all_query.txt
 .omx/

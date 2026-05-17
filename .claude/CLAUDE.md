@@ -28,7 +28,8 @@ linux-ez-kit/
     ├── network-bonding/              # NIC 본딩 자동 구성
     ├── vulnerabilty-check/           # React/Next.js CVE 점검
     ├── ssl_ssh_patch/                # OpenSSL/OpenSSH 보안 패치
-    └── keepalive-guardian/           # 서비스 가동 유지 감시 (진행 중)
+    ├── keepalive-guardian/           # 서비스 가동 유지 감시
+    └── db-migration/                 # MariaDB 스키마/데이터 마이그레이션
 ```
 
 ---
@@ -315,6 +316,52 @@ keepalive-guardian/
 3. DB 복제 상태 체크 로직
 4. Failback 안정화 로직
 5. 설치 자동화 스크립트
+
+---
+
+### 6. DB Migration (`db-migration/`)
+
+**목적**: 운영 중인 MariaDB의 스키마 및 데이터를 안전하게 마이그레이션
+
+#### 파일 구조
+```
+db-migration/
+├── migris.sh              # 마이그레이션 메인 스크립트
+├── all_query.txt.sample   # 마이그레이션 쿼리 샘플 파일
+├── all_query.txt          # 마이그레이션 쿼리 파일 (git 추적 제외)
+└── README.md              # 사용 가이드
+```
+
+#### 주요 기능
+- 마이그레이션 실행 전 전체 DB 자동 백업 (`/backup/db-backup/`)
+- 테이블·컬럼·인덱스·레코드 중복 확인 후 자동 스킵
+- 멀티라인 SQL 쿼리 파싱 지원
+- 비밀번호 프롬프트 입력 (스크립트 내 저장 금지)
+- 타임스탬프 기반 실행 로그 자동 생성
+
+#### 기술적 특징
+- 순수 Bash, 외부 의존성 없음 (mysql, mysqldump만 사용)
+- `set -e` 미사용 — 개별 쿼리 실패 시에도 나머지 쿼리 계속 실행
+- 쿼리 타입 자동 감지 (INSERT, CREATE TABLE/INDEX/VIEW, ALTER TABLE, UPDATE, DROP)
+- 백업 파일: `/backup/db-backup/before_migration_YYYYMMDD_HHMMSS.sql`
+- 로그 파일: `migration_result_YYYYMMDD_HHMMSS.log` (스크립트 실행 경로에 생성)
+
+#### 사용 방법
+```bash
+# 쿼리 파일 준비
+cp all_query.txt.sample all_query.txt
+vim all_query.txt
+
+# migris.sh 상단 DB 연결 정보 설정 (DB_PASSWORD는 공란 유지)
+vim migris.sh
+
+# 실행
+./migris.sh
+```
+
+#### 지원 환경
+- Rocky Linux 8, 9 (RHEL 계열)
+- MariaDB 10.11.7 이상
 
 ---
 
