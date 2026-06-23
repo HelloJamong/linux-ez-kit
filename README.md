@@ -52,6 +52,15 @@ OpenSSL과 OpenSSH의 보안 취약점(CVE)을 패치하는 자동화 스크립�
 - **사용 사례**: 운영 DB 스키마 변경, 참조 데이터 삽입, 무중단 데이터 마이그레이션
 - **지원 환경**: Rocky Linux 8, 9 (RHEL 계열), MariaDB 10.11.7 이상
 
+### 데이터 처리
+
+#### [File Filter](scripts/file-filter/)
+설정 파일(conf) 기반으로 CSV / TXT / DAT 파일을 조건 필터링하는 스크립트입니다. 원본을 `_origin`으로 보존하고 필터링 결과로 원본 파일을 교체하며, crontab 자동화에 적합합니다.
+
+- **주요 기능**: 다중 파일·다중 조건 필터링, 구분자 conf 설정(쉼표/파이프/탭/공백), AND/OR 조건 조합, 원본 자동 백업
+- **사용 사례**: 정기적인 데이터 정제, 특정 코드 행만 추출, crontab 기반 자동 필터링
+- **지원 환경**: 모든 Linux 배포판 (순수 bash, 외부 의존성 없음)
+
 ### 고가용성 (HA)
 
 #### [Keepalive Guardian](scripts/keepalive-guardian/)
@@ -75,6 +84,7 @@ Git 없이 원하는 스크립트만 ZIP 파일로 바로 다운로드할 수 �
 | OpenSSL/OpenSSH Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/ssl_ssh_patch) |
 | Keepalive Guardian | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/keepalive-guardian) |
 | DB Migration (Migris) | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/db-migration) |
+| File Filter | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/file-filter) |
 
 > **참고**: 다운로드 링크는 [download-directory.github.io](https://download-directory.github.io) 서비스를 이용합니다.
 > 브라우저에서 링크를 클릭하면 ZIP 파일이 자동으로 다운로드됩니다.
@@ -133,8 +143,12 @@ linux-ez-kit/
 │       │   ├── service_maintenance_mode.sh # 계획 점검 모드 제어 스크립트
 │       │   └── download_keepalived_rpms.sh # RPM 패키지 갱신 스크립트
 │       └── install_package/            # 오프라인 설치용 RPM 패키지
-│   └── db-migration/                   # MariaDB 스키마/데이터 마이그레이션
-│       ├── migris.sh                   # 마이그레이션 메인 스크립트
-│       ├── all_query.txt.sample        # 마이그레이션 쿼리 샘플
+│   ├── db-migration/                   # MariaDB 스키마/데이터 마이그레이션
+│   │   ├── migris.sh                   # 마이그레이션 메인 스크립트
+│   │   ├── all_query.txt.sample        # 마이그레이션 쿼리 샘플
+│   │   └── README.md
+│   └── file-filter/                    # conf 기반 텍스트 파일 필터링
+│       ├── file_filter.sh              # 메인 스크립트
+│       ├── filter.conf.sample          # 설정 파일 샘플
 │       └── README.md
 ```

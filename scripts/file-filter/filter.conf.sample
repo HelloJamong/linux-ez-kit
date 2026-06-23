@@ -1,0 +1,49 @@
+# filter.conf - 파일 필터링 설정
+# 사용법: cp filter.conf.sample filter.conf 후 경로/조건 수정
+#
+# ── 섹션 구조 ──────────────────────────────────────────────────────────────
+# 파일별로 [file1], [file2] 블록으로 구분 (이름은 자유)
+#
+# ── 연산자 목록 ────────────────────────────────────────────────────────────
+#   eq           값과 정확히 일치
+#   neq          값과 불일치
+#   contains     값 포함 (정규식 가능)
+#   not_contains 값 미포함
+#   gte          숫자 이상
+#   lte          숫자 이하
+#
+# ── 컬럼 지정 ──────────────────────────────────────────────────────────────
+#   1, 2, 3...  왼쪽부터 n번째 컬럼
+#   last        마지막 컬럼 ($NF)
+#
+# ── 구분자 옵션 ────────────────────────────────────────────────────────────
+#   whitespace  공백/탭 구분 (기본값, .dat/.txt 용)
+#   ,           쉼표 (CSV)
+#   |           파이프
+#   \t          탭 문자
+#   ;           세미콜론
+
+# ─── .dat 예시: 마지막 컬럼이 009T인 행만 유지 ───
+[file1]
+PATH=/path/to/data.dat
+DELIMITER=whitespace
+HAS_HEADER=no
+FILTER_1=last:eq:009T
+
+# ─── CSV 예시: 헤더 보존 + 다중 조건 AND ───
+[file2]
+PATH=/path/to/report.csv
+DELIMITER=,
+HAS_HEADER=yes
+FILTER_1=3:eq:active
+FILTER_2=5:gte:25
+FILTER_LOGIC=AND
+
+# ─── TXT 예시: 파이프 구분 + OR 조건 ───
+[file3]
+PATH=/path/to/logs.txt
+DELIMITER=|
+HAS_HEADER=no
+FILTER_1=2:contains:seoul
+FILTER_2=last:neq:FAILED
+FILTER_LOGIC=OR
