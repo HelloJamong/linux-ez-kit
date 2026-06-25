@@ -43,6 +43,13 @@ OpenSSL과 OpenSSH의 보안 취약점(CVE)을 패치하는 자동화 스크립�
 - **사용 사례**: OpenSSL/OpenSSH 보안 패치 적용, CVE 취약점 조치, 패치 컴플라이언스 확인
 - **지원 환경**: Rocky Linux 9.x, RHEL 9.x
 
+#### [Kernel Security Patch](scripts/kernel_patch/)
+Linux 커널 보안 취약점(CVE)을 오프라인 RPM으로 패치하는 자동화 스크립트입니다. 기존 커널을 유지한 채 새 커널을 추가 설치하며, 재부팅은 수동으로 진행할 수 있도록 안내합니다.
+
+- **주요 기능**: CVE 기반 사전/사후 검증, 자동 백업(커널 버전·GRUB 설정), 비파괴 설치(기존 커널 보존), GRUB 자동 설정, 롤백 안내, 결과 보고서 생성
+- **사용 사례**: 커널 CVE 취약점 조치, 오프라인 환경 보안 패치, 재부팅 시점 직접 제어가 필요한 운영 환경
+- **지원 환경**: Rocky Linux 9.x, RHEL 9.x (9.0 ~ 9.x 전 버전 단일 RPM 세트 지원)
+
 ### 데이터베이스
 
 #### [DB Migration (Migris)](scripts/db-migration/)
@@ -82,6 +89,7 @@ Git 없이 원하는 스크립트만 ZIP 파일로 바로 다운로드할 수 �
 | NIC Bonding Configuration | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/network-bonding) |
 | React/Next.js Vulnerability Check | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/vulnerabilty-check) |
 | OpenSSL/OpenSSH Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/ssl_ssh_patch) |
+| Kernel Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/kernel_patch) |
 | Keepalive Guardian | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/keepalive-guardian) |
 | DB Migration (Migris) | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/db-migration) |
 | File Filter | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/file-filter) |
@@ -127,6 +135,10 @@ linux-ez-kit/
 │   │   ├── patch_script.sh
 │   │   ├── openssh/                    # OpenSSH 패키지 RPM
 │   │   ├── openssl/                    # OpenSSL 패키지 RPM
+│   │   └── README.md
+│   ├── kernel_patch/                   # 커널 보안 패치 스크립트
+│   │   ├── patch_script.sh
+│   │   ├── kernel/                     # 커널 패키지 RPM
 │   │   └── README.md
 │   └── keepalive-guardian/             # Keepalived 기반 Active-Standby HA 구성
 │       ├── install.sh                  # 설치 자동화 스크립트 (대화형 / 비대화형)
