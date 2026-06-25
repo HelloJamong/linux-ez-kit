@@ -36,16 +36,17 @@ ssl_ssh_patch/
 현재 폴더에 포함된 RPM 예시:
 ```
 openssh/
-├── openssh-8.7p1-47.el9_7.rocky.0.1.x86_64.rpm
-├── openssh-clients-8.7p1-47.el9_7.rocky.0.1.x86_64.rpm
-└── openssh-server-8.7p1-47.el9_7.rocky.0.1.x86_64.rpm
+├── openssh-9.9p1-7.el9_8.rocky.0.1.x86_64.rpm
+├── openssh-clients-9.9p1-7.el9_8.rocky.0.1.x86_64.rpm
+└── openssh-server-9.9p1-7.el9_8.rocky.0.1.x86_64.rpm
 
 openssl/
-├── openssl-3.5.1-7.el9_7.x86_64.rpm
-├── openssl-devel-3.5.1-7.el9_7.x86_64.rpm
-├── openssl-fips-provider-3.5.1-7.el9_7.x86_64.rpm
-└── openssl-libs-3.5.1-7.el9_7.x86_64.rpm
+├── openssl-3.5.5-4.el9_8.x86_64.rpm
+├── openssl-fips-provider-3.5.5-4.el9_8.x86_64.rpm
+└── openssl-libs-3.5.5-4.el9_8.x86_64.rpm
 ```
+
+> **참고**: `openssl-devel` 패키지는 el9_8 BaseOS 저장소에 포함되지 않습니다. 필요 시 CRB(CodeReady Builder) 저장소에서 별도 다운로드하세요.
 
 ## 사용 방법
 
@@ -54,7 +55,7 @@ openssl/
 `patch_script.sh` 상단의 `CVE_LIST` 변수에 점검할 CVE 코드를 공백으로 구분하여 입력합니다:
 
 ```bash
-CVE_LIST="CVE-2025-15467 CVE-2025-11187"
+CVE_LIST="CVE-2026-34181 CVE-2026-34182 CVE-2026-34183"
 ```
 
 ### 2. RPM 파일 배치

@@ -11,7 +11,7 @@ if file "$0" 2>/dev/null | grep -q CRLF; then
     exec bash "$0" "$@"
 fi
 #
-# OpenSSL/OpenSSH 보안 패치 자동화 스크립트 v2.1
+# OpenSSL/OpenSSH 보안 패치 자동화 스크립트 v2.2
 # Rocky Linux / RHEL 9.0 ~ 9.x 전 버전 지원
 # 
 # 사용법: 
@@ -23,7 +23,7 @@ set -e  # 오류 발생 시 스크립트 중단
 
 # ==================== 설정 (여기를 수정하세요) ====================
 # 점검할 CVE 코드 (공백으로 구분)
-CVE_LIST="CVE-2025-15467 CVE-2025-11187"
+CVE_LIST="CVE-2026-34181 CVE-2026-34182 CVE-2026-34183"
 
 # ==================== 경로 설정 ====================
 SCRIPT_DIR="/tmp/ssl_ssh_patch"
