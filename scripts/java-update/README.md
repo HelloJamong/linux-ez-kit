@@ -57,28 +57,58 @@ sudo ./update-java.sh --force <corretto.tar.gz>               # (update) 동일 
 
 tar.gz와 SHA-256 값은 [Corretto 21 다운로드 페이지](https://docs.aws.amazon.com/corretto/latest/corretto-21-ug/downloads-list.html)에서 받습니다 (예: `amazon-corretto-21.0.10.7.1-linux-x64.tar.gz`).
 
-## 마이그레이션 절차 (권장)
+## 운영 서버 마이그레이션 가이드
 
-1. 테스트 서버에서 애플리케이션 호환성 확인 (특히 8/11/17 → 21 메이저 업그레이드)
-2. `./update-java.sh --check` 로 현재 JDK, 기존 경로 참조 줄, alternatives 전환 대상 확인
-3. 경고된 설정 줄 정리 (아래 [기존 경로 참조 정리](#기존-경로-참조-정리) 참고)
-4. `sudo ./update-java.sh --dry-run <tar.gz>` 로 검증 (경로 참조 경고가 사라졌는지 확인)
-5. `sudo ./update-java.sh --sha256 <hash> <tar.gz>` 실행 → `y` 입력 (alternatives는 자동 전환)
-6. 서비스 재시작 후 확인: `for p in $(pgrep -x java); do echo "$p $(readlink -f /proc/$p/exe)"; done`
-7. 재접속 후 `java -version`, `echo $JAVA_HOME`, `readlink -f /usr/bin/java` 확인
+운영 중인 서버에서 기존 tar.gz JDK를 Corretto 21로 전환하는 표준 절차입니다. **서비스 중단은 4단계(재시작)에서만** 발생하며, 0~3단계는 서비스 운영 중에 진행합니다.
 
-> 원복: `sudo /backup/java-update/backup_<타임스탬프>/restore.sh` 실행 후 서비스 재시작. `java.sh`, `java-21` 링크, alternatives를 모두 되돌립니다. 3번에서 직접 수정한 파일은 직접 되돌려야 합니다.
+| 단계 | 작업 | 서비스 상태 |
+|------|------|-------------|
+| 사전 | 파일 준비, 호환성 확인 | 운영 중 |
+| 0 | 환경 점검 (`--check`) | 운영 중 |
+| 1 | 기존 JDK 경로 참조 줄 정리 | 운영 중 |
+| 2 | dry-run | 운영 중 |
+| 3 | 마이그레이션 실행 | 운영 중 |
+| 4 | 서비스 재시작 | **중단 (재시작 시간만큼)** |
+| 5 | 검증 | 운영 중 |
 
-### 기존 경로 참조 정리
+### 사전 준비
 
-스크립트는 `/etc/profile` 같은 시스템 공통 파일을 수정하지 않고, 기존 JDK 경로를 참조하는 줄을 `파일:줄번호:내용` 으로 알려줍니다.
+- **호환성 확인**: JDK 8/11/17 → 21 메이저 업그레이드라면 테스트 서버에서 애플리케이션 동작을 먼저 확인합니다. 같은 21 버전의 벤더 전환(Temurin 21 → Corretto 21)은 위험이 낮습니다.
+- **파일 준비**: `update-java.sh` 와 Corretto 21 tar.gz를 서버에 복사합니다.
+  ```bash
+  curl -LO https://corretto.aws/downloads/latest/amazon-corretto-21-x64-linux-jdk.tar.gz
+  curl -sL https://corretto.aws/downloads/latest_sha256/amazon-corretto-21-x64-linux-jdk.tar.gz; echo   # 공식 SHA-256
+  sha256sum amazon-corretto-21-x64-linux-jdk.tar.gz                                                 # 값 비교
+  ```
+  인터넷이 안 되는 서버는 다른 PC에서 받아 `scp` 로 옮깁니다. `--sha256` 옵션은 선택이며, 생략 시 경고만 출력됩니다.
+- **서비스 기동 방식 확인**: 재시작 방법과, 서비스가 java를 어떻게 실행하는지(경로 없는 `java`, 절대경로, `JAVA_HOME`) 확인해 둡니다.
+  ```bash
+  pgrep -ax java                       # 실행 중인 Java 프로세스
+  systemctl status <PID> | head -3     # systemd 서비스라면 unit 이름 확인
+  ```
+
+### 0. 환경 점검
+
+```bash
+sudo ./update-java.sh --check
+```
+
+확인할 항목:
+- `동작 모드: migrate` 와 현재 JDK 벤더/버전
+- **기존 경로 참조 경고**: `파일:줄번호:내용` 형식으로 표시된 줄 (1단계에서 정리)
+- **alternatives**: `alternatives java: ... (전환 시 자동 변경)` 이 표시되면 3단계에서 자동 전환됨
+
+현재 JDK를 찾지 못하면 `sudo JAVA_HOME=/path/to/jdk ./update-java.sh --check` 처럼 직접 지정합니다. 이후 모든 단계에서 동일하게 지정하세요.
+
+### 1. 기존 JDK 경로 참조 줄 정리
+
+스크립트는 `/etc/profile` 같은 시스템 공통 파일을 수정하지 않습니다. 0단계에서 경고된 줄을 직접 주석 처리합니다.
 
 ```
 [WARN]   /etc/profile:82:export JAVA_HOME=/usr/lib/jvm/jdk-21.0.4
-[WARN]   /etc/profile:83:export PATH=/usr/lib/jvm/jdk-21.0.4/bin:$PATH
 ```
 
-줄 번호는 서버마다 다르므로, 경고에 나온 번호를 그대로 쓰거나 아래처럼 패턴으로 일괄 주석 처리합니다.
+줄 번호는 서버마다 다르므로 경로 패턴으로 일괄 주석 처리하는 것을 권장합니다.
 
 ```bash
 OLD=/usr/lib/jvm/jdk-21.0.4                        # 경고 메시지의 기존 JDK 경로
@@ -88,10 +118,78 @@ sed -i -E "\#^[[:space:]]*[^#[:space:]].*${OLD}(/|[[:space:]\"':]|\$)#s|^|#|" /e
 grep -n "${OLD}\|JAVA_HOME" /etc/profile           # 결과 확인
 ```
 
-- `JAVA_HOME` 줄과 함께 `export PATH=$JAVA_HOME/bin:$PATH` 처럼 **경로 없이 변수만 쓰는 줄**은 경고에 나오지 않습니다. 남겨도 동작에는 문제없지만(`java.sh` 의 `JAVA_HOME` 을 사용), 정리하려면 직접 확인하세요.
-- `/etc/profile` 의 설정은 `/etc/profile.d/*.sh` 를 읽은 **뒤**에 실행되면 `java.sh` 를 덮어씁니다. 위치와 관계없이 기존 JDK 줄은 주석 처리하는 것을 권장합니다.
-- systemd unit 파일이 경고되면 경로를 `/usr/lib/jvm/java-21` 로 바꾸고 `systemctl daemon-reload` 후 재시작합니다.
-- 스크립트를 다시 실행(`--check` 또는 `--dry-run`)하면 주석 처리된 줄은 경고에서 빠지므로 정리 여부를 확인할 수 있습니다.
+- `/etc/profile` 의 설정이 `/etc/profile.d/*.sh` 를 읽은 **뒤**에 있으면 새 `java.sh` 를 덮어씁니다. 위치와 관계없이 기존 JDK 줄은 주석 처리하세요.
+- `export PATH=$JAVA_HOME/bin:$PATH` 처럼 **경로 없이 변수만 쓰는 줄**은 경고에 나오지 않습니다. 남겨도 동작에는 문제없습니다.
+- **systemd unit** 파일이 경고되면 경로를 `/usr/lib/jvm/java-21` 로 바꾸고 `systemctl daemon-reload` 를 실행합니다.
+- 운영 중인 서비스에는 영향이 없습니다 (새 로그인 쉘/재시작부터 적용).
+
+### 2. dry-run
+
+```bash
+sudo ./update-java.sh --dry-run [--sha256 <hash>] <corretto.tar.gz>
+```
+
+- 1단계에서 정리한 줄이 경고에서 사라졌는지 확인 (주석 처리된 줄은 표시되지 않음)
+- 버전 게이트 통과, `DRY-RUN 완료. 실제 변경 사항 없음.` 출력 확인
+
+### 3. 마이그레이션 실행
+
+```bash
+sudo ./update-java.sh [--sha256 <hash>] <corretto.tar.gz>
+# "계속하시겠습니까? [y/N]" → y
+```
+
+한 번에 다음이 적용되며, 실패 시 자동 롤백됩니다.
+- `/usr/lib/jvm/amazon-corretto-<버전>-linux-x64` 설치
+- `/usr/lib/jvm/java-21` 링크 생성
+- `/etc/profile.d/java.sh` 재작성 (기존 파일은 백업)
+- `java`/`javac` alternatives 전환 (기존 JDK를 가리킬 때만)
+- `/backup/java-update/backup_<타임스탬프>/restore.sh` 생성 → **경로를 기록해 두세요**
+
+실행 중인 서비스는 계속 기존 JDK로 동작합니다.
+
+### 4. 서비스 재시작
+
+```bash
+systemctl restart <서비스>     # systemd 서비스
+```
+
+systemd가 아닌 스크립트로 기동하는 서비스는 **새로 SSH 접속한 쉘**에서 기존 방식대로 재기동합니다. (기존 쉘은 PATH/command 캐시에 이전 JDK가 남아 있을 수 있음)
+
+### 5. 검증
+
+```bash
+# 실행 중인 Java 프로세스가 Corretto 바이너리를 사용하는지 (가장 확실한 확인)
+for p in $(pgrep -x java); do echo "$p $(readlink -f /proc/$p/exe)"; done
+# → /usr/lib/jvm/amazon-corretto-<버전>-linux-x64/bin/java
+
+readlink -f /usr/bin/java      # alternatives → amazon-corretto-...
+systemctl status <서비스> | head -5
+```
+
+새로 SSH 접속한 쉘에서:
+```bash
+java -version                  # Corretto-21.x
+echo $JAVA_HOME                # /usr/lib/jvm/java-21
+```
+
+`ps -ef` 의 명령줄만으로는 어떤 JDK로 실행됐는지 알 수 없으므로 반드시 `/proc/<PID>/exe` 로 확인합니다. 프로세스가 기존 JDK 경로로 나오면 서비스 설정(unit 파일, 기동 스크립트)에 경로가 하드코딩되어 있는지 확인하세요 (`systemctl cat <서비스>`).
+
+### 원복
+
+```bash
+systemctl stop <서비스>
+sudo /backup/java-update/backup_<타임스탬프>/restore.sh     # java.sh, java-21 링크, alternatives 원복
+cp -a /root/profile.bak_<타임스탬프> /etc/profile            # 1단계에서 직접 수정한 파일
+systemctl start <서비스>
+```
+
+설치된 Corretto 디렉터리와 기존 JDK 디렉터리는 원복 후에도 남아 있습니다.
+
+### 이후 작업
+
+- **Corretto 업데이트**: 새 tar.gz로 `sudo ./update-java.sh <tar.gz>` 실행 → update 모드로 `java-21` 링크만 교체됩니다. alternatives도 링크를 따라가므로 추가 작업 없이 서비스 재시작만 하면 됩니다.
+- **기존 JDK 정리**: 충분히 운영 검증 후 기존 JDK 디렉터리를 수동 삭제합니다. 원복 가능성이 있는 동안은 남겨 두세요.
 
 ## 실행 예시
 
