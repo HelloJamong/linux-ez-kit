@@ -257,7 +257,9 @@ validate_archive() {
     local entries
     entries=$(tar -tzf "$file" 2>/dev/null) || error_exit "손상되었거나 읽을 수 없는 tar 아카이브입니다: ${file}"
 
-    if echo "$entries" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    # grep -q 는 첫 일치에서 바로 종료하므로 'echo | grep -q' 는 pipefail 하에서 echo 가
+    # SIGPIPE(141)로 실패해 결과가 뒤집힐 수 있다. 파이프 대신 here-string 으로 전달한다.
+    if grep -Eq '(^/|(^|/)\.\.(/|$))' <<< "$entries"; then
         error_exit "아카이브에 위험한 경로(절대경로 또는 '..')가 포함되어 있습니다: ${file}"
     fi
 
@@ -266,8 +268,8 @@ validate_archive() {
     [[ "$top_count" -eq 1 ]] || error_exit "아카이브는 최상위 디렉터리 1개만 포함해야 합니다 (발견: ${top_count}개)."
     top_name=$(echo "$entries" | awk -F/ '{print $1}' | sort -u)
 
-    echo "$entries" | grep -q "^${top_name}/bin/java$" || error_exit "아카이브에 bin/java 가 없습니다."
-    echo "$entries" | grep -q "^${top_name}/bin/javac$" || error_exit "아카이브에 bin/javac 가 없습니다 (JDK 아카이브가 아닌 것으로 보임)."
+    grep -q "^${top_name}/bin/java$" <<< "$entries" || error_exit "아카이브에 bin/java 가 없습니다."
+    grep -q "^${top_name}/bin/javac$" <<< "$entries" || error_exit "아카이브에 bin/javac 가 없습니다 (JDK 아카이브가 아닌 것으로 보임)."
 
     log_ok "아카이브 구조 검증 완료: ${file}"
 }
