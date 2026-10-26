@@ -53,9 +53,9 @@ Linux 커널 보안 취약점(CVE)을 오프라인 RPM으로 패치하는 자동
 ### 런타임 관리
 
 #### [Java (Corretto 21) Migration / Update](scripts/java-update/)
-tar.gz로 수동 설치한 JDK(OpenJDK, Eclipse Temurin 등)를 Amazon Corretto 21로 마이그레이션하고, 이후 Corretto 21 업데이트까지 처리하는 스크립트입니다. 신규 JDK를 별도 디렉터리에 설치하고 `/usr/lib/jvm/java-21` 링크와 `/etc/profile.d/java.sh`를 검증 후에만 전환합니다.
+tar.gz로 수동 설치한 JDK(OpenJDK, Eclipse Temurin 등)를 Amazon Corretto 21로 마이그레이션하고, 이후 Corretto 21 업데이트까지 처리하는 스크립트입니다. 신규 JDK를 별도 디렉터리에 설치하고 `/usr/lib/jvm/java-21` 링크, `/etc/profile.d/java.sh`, `java`/`javac` alternatives를 검증 후에만 전환합니다.
 
-- **주요 기능**: migrate/update 모드 자동 판별, 사전 환경/아카이브 검증(path traversal 차단, SHA-256 선택 검증), 버전 다운그레이드 방지, java.sh 백업 및 restore.sh 생성, 전환 후 검증 실패 시 자동 롤백, 기존 JDK 경로를 참조하는 systemd/프로필 설정 경고, 기존 JDK 자동 삭제 없음
+- **주요 기능**: migrate/update 모드 자동 판별, 사전 환경/아카이브 검증(path traversal 차단, SHA-256 선택 검증), 버전 다운그레이드 방지, java.sh 백업 및 restore.sh 생성, alternatives 자동 전환(기존 JDK를 가리킬 때만, restore.sh로 원복), 전환 후 검증 실패 시 자동 롤백, 기존 JDK 경로를 참조하는 systemd/프로필 설정 줄 경고(파일:줄번호), 기존 JDK 자동 삭제 없음
 - **사용 사례**: OpenJDK/Temurin → Corretto 21 벤더 전환, JDK 8/11/17 → 21 업그레이드, Corretto 21 마이너 버전 업데이트
 - **지원 환경**: Rocky Linux 9.x (RHEL 계열), tar.gz로 수동 설치한 JDK 21 이하 (RPM/DNF 설치 환경은 미지원)
 
