@@ -52,12 +52,12 @@ Linux 커널 보안 취약점(CVE)을 오프라인 RPM으로 패치하는 자동
 
 ### 런타임 관리
 
-#### [Java (Temurin) Update](scripts/java-update/)
-tar.gz로 수동 설치한 Eclipse Temurin JDK 21을 안전하게 업데이트하는 스크립트입니다. 기존 심볼릭 링크 구조(`/usr/lib/jvm/temurin-21`)를 유지한 채 신규 버전을 별도 디렉터리에 설치하고, 검증 후에만 링크를 원자적으로 전환합니다.
+#### [Java (Corretto 21) Migration / Update](scripts/java-update/)
+tar.gz로 수동 설치한 JDK(OpenJDK, Eclipse Temurin 등)를 Amazon Corretto 21로 마이그레이션하고, 이후 Corretto 21 업데이트까지 처리하는 스크립트입니다. 신규 JDK를 별도 디렉터리에 설치하고 `/usr/lib/jvm/java-21` 링크와 `/etc/profile.d/java.sh`를 검증 후에만 전환합니다.
 
-- **주요 기능**: 사전 환경/아카이브 검증(path traversal 차단, SHA-256 선택 검증), 버전 다운그레이드 방지, 원자적 심볼릭 링크 전환, 전환 후 검증 실패 시 자동 롤백, 기존 JDK 자동 삭제 없음
-- **사용 사례**: Temurin JDK 21 마이너 버전 업데이트, Minecraft 등 tar.gz 기반 Java 애플리케이션 서버 유지보수
-- **지원 환경**: Rocky Linux 9.x (RHEL 계열), tar.gz로 수동 설치한 Eclipse Temurin JDK 21 (RPM/DNF 설치 환경은 미지원)
+- **주요 기능**: migrate/update 모드 자동 판별, 사전 환경/아카이브 검증(path traversal 차단, SHA-256 선택 검증), 버전 다운그레이드 방지, java.sh 백업 및 restore.sh 생성, 전환 후 검증 실패 시 자동 롤백, 기존 JDK 경로를 참조하는 systemd/프로필 설정 경고, 기존 JDK 자동 삭제 없음
+- **사용 사례**: OpenJDK/Temurin → Corretto 21 벤더 전환, JDK 8/11/17 → 21 업그레이드, Corretto 21 마이너 버전 업데이트
+- **지원 환경**: Rocky Linux 9.x (RHEL 계열), tar.gz로 수동 설치한 JDK 21 이하 (RPM/DNF 설치 환경은 미지원)
 
 ### 데이터베이스
 
@@ -99,7 +99,7 @@ Git 없이 원하는 스크립트만 ZIP 파일로 바로 다운로드할 수 �
 | React/Next.js Vulnerability Check | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/vulnerabilty-check) |
 | OpenSSL/OpenSSH Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/ssl_ssh_patch) |
 | Kernel Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/kernel_patch) |
-| Java (Temurin) Update | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/java-update) |
+| Java (Corretto 21) Migration / Update | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/java-update) |
 | Keepalive Guardian | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/keepalive-guardian) |
 | DB Migration (Migris) | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/db-migration) |
 | File Filter | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/file-filter) |
@@ -150,7 +150,7 @@ linux-ez-kit/
 │   │   ├── patch_script.sh
 │   │   ├── kernel/                     # 커널 패키지 RPM
 │   │   └── README.md
-│   ├── java-update/                    # tar.gz 설치 Temurin JDK 업데이트 스크립트
+│   ├── java-update/                    # tar.gz 설치 JDK → Corretto 21 마이그레이션/업데이트 스크립트
 │   │   ├── update-java.sh
 │   │   └── README.md
 │   └── keepalive-guardian/             # Keepalived 기반 Active-Standby HA 구성
