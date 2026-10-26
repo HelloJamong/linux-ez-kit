@@ -40,8 +40,9 @@ Rocky Linux 9 환경에서 tar.gz로 수동 설치한 JDK(OpenJDK, Eclipse Temur
 - **백업/복구 (migrate)**: `/backup/java-update/backup_YYYYMMDD_HHMMSS/` 에 기존 `java.sh` 와 `restore.sh` 생성
 - **자동 롤백**: 전환 후 검증 실패 시 이전 상태로 즉시 복구 (`migrate`는 `restore.sh` 실행, `update`는 이전 링크로 복원)
 - **기존 경로 참조 경고 (migrate)**: systemd unit, `/etc/sysconfig`, `/etc/profile*`, 사용자 `.bashrc` 등에서 기존 JDK 경로를 직접 참조하는 파일을 찾아 경고 (수정하지 않음)
+- **alternatives 경고**: `/usr/bin/java` (alternatives)가 기존 JDK 실제 경로를 가리키면 전환 명령과 함께 경고 (변경하지 않음). RPM Java 8 등 다른 JDK를 가리키거나 이미 `java-21` 링크를 가리키면 경고하지 않음
 - **삭제 없음**: 기존 JDK 디렉터리와 링크는 절대 자동 삭제하지 않음 (경로만 안내)
-- **실행 중 프로세스 경고**: `pgrep -a java`로 조회만 하고 kill/재시작은 하지 않음
+- **실행 중 프로세스 경고**: `pgrep -ax java`로 조회만 하고 kill/재시작은 하지 않음
 
 ## 사용법
 
@@ -62,8 +63,16 @@ tar.gz와 SHA-256 값은 [Corretto 21 다운로드 페이지](https://docs.aws.a
 2. `./update-java.sh --check` 로 현재 JDK와 기존 경로 참조 파일 확인
 3. `sudo ./update-java.sh --dry-run <tar.gz>` 로 검증
 4. `sudo ./update-java.sh --sha256 <hash> <tar.gz>` 실행 → `y` 입력
-5. 경고된 systemd unit 등의 JDK 경로를 `/usr/lib/jvm/java-21` 로 수정 → `systemctl daemon-reload` → 서비스 재시작
-6. 재접속 후 `java -version`, `echo $JAVA_HOME` 확인
+5. 경고된 systemd unit 등의 JDK 경로를 `/usr/lib/jvm/java-21` 로 수정 → `systemctl daemon-reload`
+6. alternatives 경고가 있었다면 안내된 명령 실행:
+   ```bash
+   alternatives --install /usr/bin/java java /usr/lib/jvm/java-21/bin/java 2100
+   alternatives --set java /usr/lib/jvm/java-21/bin/java
+   ```
+7. 서비스 재시작 후 확인: `for p in $(pgrep -x java); do echo "$p $(readlink -f /proc/$p/exe)"; done`
+8. 재접속 후 `java -version`, `echo $JAVA_HOME`, `readlink -f /usr/bin/java` 확인
+
+> 원복 시 `restore.sh` 는 alternatives를 되돌리지 않습니다. 6번을 실행했다면 `alternatives --remove java /usr/lib/jvm/java-21/bin/java` 도 함께 실행하세요.
 
 ## 실행 예시
 

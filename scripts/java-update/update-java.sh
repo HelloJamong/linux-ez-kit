@@ -35,6 +35,7 @@ trap 'log_error "예상치 못한 오류가 발생했습니다 (line $LINENO)."'
 JVM_DIR="/usr/lib/jvm"
 SYMLINK_PATH="${JVM_DIR}/java-21"
 PROFILE_SCRIPT="/etc/profile.d/java.sh"
+ALT_JAVA_LINK="/etc/alternatives/java"
 BACKUP_ROOT="/backup/java-update"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
@@ -214,6 +215,20 @@ warn_path_references() {
     while read -r f; do log_warn "  ${f}"; done <<< "$refs"
 }
 
+# /usr/bin/java (alternatives) 가 기존 JDK를 직접 가리키는지 확인 (수정하지 않고 경고만)
+# 다른 JDK(RPM Java 8 등)를 가리키거나 이미 java-21 링크를 가리키면 무관하므로 넘어간다
+warn_alternatives() {
+    local alt_target
+    alt_target=$(readlink "$ALT_JAVA_LINK" 2>/dev/null || true)
+    [[ -n "$alt_target" && "$alt_target" != "${SYMLINK_PATH}/bin/java" ]] || return 0
+    [[ "$(readlink -f "$alt_target")" == "${CUR_SYMLINK_TARGET}/bin/java" ]] || return 0
+
+    log_warn "/usr/bin/java (alternatives) 가 기존 JDK를 가리킵니다: ${alt_target}"
+    log_warn "경로 없이 'java'로 실행하는 서비스(systemd 등)는 전환 후에도 기존 JDK를 사용합니다. 전환 후 아래 명령으로 변경하세요:"
+    log_warn "  alternatives --install /usr/bin/java java ${SYMLINK_PATH}/bin/java 2100"
+    log_warn "  alternatives --set java ${SYMLINK_PATH}/bin/java"
+}
+
 # ==================== 아카이브 검증 ====================
 validate_archive() {
     local file="$1"
@@ -334,7 +349,8 @@ compare_and_gate_version() {
 
 check_running_java_processes() {
     local procs
-    procs=$(pgrep -a java 2>/dev/null || true)
+    # -x: 프로세스 이름이 정확히 java 인 것만 (update-java.sh 자신 제외)
+    procs=$(pgrep -ax java 2>/dev/null || true)
     [[ -n "$procs" ]] || return 0
 
     log_warn "현재 실행 중인 Java 프로세스가 존재합니다."
@@ -506,6 +522,7 @@ final_report() {
         log_warn "현재 로그인된 다른 쉘은 command hash 캐시로 인해 변경 사항이 즉시 반영되지 않을 수 있습니다."
         log_warn "필요 시 해당 쉘에서 'hash -r' 실행 또는 재접속하세요."
     fi
+    warn_alternatives
     # shellcheck disable=SC1090
     log_info "java -version: $(source "$PROFILE_SCRIPT"; java -version 2>&1 | head -1)"
     log_info "readlink -f: $(source "$PROFILE_SCRIPT"; readlink -f "$(command -v java)")"
@@ -524,6 +541,7 @@ main() {
             [[ -z "$TARBALL" ]] || error_exit "--check 옵션은 tar.gz 인자와 함께 사용할 수 없습니다."
             inspect_current_env
             [[ "$INSTALL_TYPE" == "migrate" ]] && warn_path_references
+            warn_alternatives
             exit 0 ;;
     esac
 
@@ -545,6 +563,7 @@ main() {
     compare_and_gate_version
     check_running_java_processes
     [[ "$INSTALL_TYPE" == "migrate" ]] && warn_path_references
+    warn_alternatives
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
         print_dry_run_summary
