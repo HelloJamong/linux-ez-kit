@@ -35,7 +35,7 @@ trap 'log_error "예상치 못한 오류가 발생했습니다 (line $LINENO)."'
 JVM_DIR="/usr/lib/jvm"
 SYMLINK_PATH="${JVM_DIR}/java-21"
 PROFILE_SCRIPT="/etc/profile.d/java.sh"
-ALT_JAVA_LINK="/etc/alternatives/java"
+ALT_DIR="/etc/alternatives"
 BACKUP_ROOT="/backup/java-update"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
@@ -63,6 +63,8 @@ NEW_JDK_PATH=""
 NEW_JDK_VERSION=""
 NEW_JAVA_VERSION=""
 NEW_OS_ARCH=""
+ALT_NAMES=()             # 자동 전환할 alternatives 이름 (java, javac)
+ALT_PREVS=()             # 전환 전 alternatives 대상 (원복용)
 
 cleanup() {
     [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]] && rm -rf "${TMP_DIR}"
@@ -201,32 +203,43 @@ inspect_current_env() {
     log_ok "현재 Java 환경 검증 완료"
 }
 
-# 기존 JDK 경로를 직접 참조하는 설정 파일 탐색 (수정하지 않고 경고만)
+# 기존 JDK 경로를 직접 참조하는 설정 줄 탐색 (수정하지 않고 파일:줄번호:내용 으로 경고만)
+# 주석 처리된 줄(#...)과 이 스크립트가 관리하는 java.sh 는 제외한다
 warn_path_references() {
     local -a targets=(/etc/systemd/system /etc/sysconfig /etc/default /etc/environment
                       /etc/profile /etc/bashrc /etc/profile.d
                       /root/.bash_profile /root/.bashrc /home/*/.bash_profile /home/*/.bashrc /home/*/.profile)
     local refs
-    refs=$(grep -rlsF -e "$CUR_JAVA_HOME" -e "$CUR_SYMLINK_TARGET" -- "${targets[@]}" 2>/dev/null \
-           | grep -vxF "$PROFILE_SCRIPT" || true)
+    refs=$(grep -rnsF -e "$CUR_JAVA_HOME" -e "$CUR_SYMLINK_TARGET" -- "${targets[@]}" 2>/dev/null \
+           | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vF "${PROFILE_SCRIPT}:" || true)
     [[ -n "$refs" ]] || { log_ok "기존 JDK 경로를 직접 참조하는 설정 파일 없음"; return 0; }
 
-    log_warn "아래 파일이 기존 JDK 경로(${CUR_JAVA_HOME})를 직접 참조합니다. 마이그레이션 후에도 기존 JDK를 사용하므로 직접 수정하세요:"
+    log_warn "아래 설정이 기존 JDK 경로(${CUR_JAVA_HOME})를 직접 참조합니다. 마이그레이션 후에도 기존 JDK를 사용하므로 직접 주석 처리 또는 수정하세요:"
     while read -r f; do log_warn "  ${f}"; done <<< "$refs"
 }
 
-# /usr/bin/java (alternatives) 가 기존 JDK를 직접 가리키는지 확인 (수정하지 않고 경고만)
+# alternatives(java, javac)가 기존 JDK 실제 경로를 가리키는지 확인해 ALT_NAMES/ALT_PREVS 에 기록
 # 다른 JDK(RPM Java 8 등)를 가리키거나 이미 java-21 링크를 가리키면 무관하므로 넘어간다
-warn_alternatives() {
-    local alt_target
-    alt_target=$(readlink "$ALT_JAVA_LINK" 2>/dev/null || true)
-    [[ -n "$alt_target" && "$alt_target" != "${SYMLINK_PATH}/bin/java" ]] || return 0
-    [[ "$(readlink -f "$alt_target")" == "${CUR_SYMLINK_TARGET}/bin/java" ]] || return 0
+# migrate: 전환 시 자동 변경 (restore.sh 로 원복) / update: 경고만
+detect_alternatives() {
+    local name prev i
+    ALT_NAMES=(); ALT_PREVS=()
+    for name in java javac; do
+        prev=$(readlink "${ALT_DIR}/${name}" 2>/dev/null || true)
+        [[ -n "$prev" && "$prev" != "${SYMLINK_PATH}/bin/${name}" ]] || continue
+        [[ "$(readlink -f "$prev")" == "${CUR_SYMLINK_TARGET}/bin/${name}" ]] || continue
+        ALT_NAMES+=("$name"); ALT_PREVS+=("$prev")
+    done
 
-    log_warn "/usr/bin/java (alternatives) 가 기존 JDK를 가리킵니다: ${alt_target}"
-    log_warn "경로 없이 'java'로 실행하는 서비스(systemd 등)는 전환 후에도 기존 JDK를 사용합니다. 전환 후 아래 명령으로 변경하세요:"
-    log_warn "  alternatives --install /usr/bin/java java ${SYMLINK_PATH}/bin/java 2100"
-    log_warn "  alternatives --set java ${SYMLINK_PATH}/bin/java"
+    for i in "${!ALT_NAMES[@]}"; do
+        if [[ "$INSTALL_TYPE" == "migrate" ]]; then
+            log_info "alternatives ${ALT_NAMES[i]}: ${ALT_PREVS[i]} -> ${SYMLINK_PATH}/bin/${ALT_NAMES[i]} (전환 시 자동 변경)"
+        else
+            log_warn "/usr/bin/${ALT_NAMES[i]} (alternatives) 가 JDK 실제 경로를 직접 가리켜 링크 교체를 따라오지 않습니다: ${ALT_PREVS[i]}"
+            log_warn "  alternatives --install /usr/bin/${ALT_NAMES[i]} ${ALT_NAMES[i]} ${SYMLINK_PATH}/bin/${ALT_NAMES[i]} 2100"
+            log_warn "  alternatives --set ${ALT_NAMES[i]} ${SYMLINK_PATH}/bin/${ALT_NAMES[i]}"
+        fi
+    done
 }
 
 # ==================== 아카이브 검증 ====================
@@ -373,6 +386,7 @@ print_dry_run_summary() {
     log_info "변경 예정 심볼릭 링크: ${SYMLINK_PATH} -> ${JVM_DIR}/${NEW_JDK_NAME}"
     if [[ "$INSTALL_TYPE" == "migrate" ]]; then
         log_info "재작성 예정: ${PROFILE_SCRIPT} (JAVA_HOME=${SYMLINK_PATH}, 기존 파일은 ${BACKUP_ROOT}/backup_<타임스탬프>/ 에 백업)"
+        [[ ${#ALT_NAMES[@]} -eq 0 ]] || log_info "alternatives 전환 예정: ${ALT_NAMES[*]} -> ${SYMLINK_PATH}/bin/"
     fi
     log_ok "DRY-RUN 완료. 실제 변경 사항 없음."
 }
@@ -441,6 +455,14 @@ backup_profile() {
     mkdir -p "$BACKUP_DIR"
     chmod 700 "$BACKUP_DIR"
 
+    # alternatives 원복: 이전 대상으로 되돌린 뒤 java-21 후보 제거 (전환 전에 실패했으면 제거는 무시)
+    # 실패해도 java.sh/링크는 먼저 복원되도록 restore.sh 마지막에 둔다
+    local restore_alt_cmds="" i
+    for i in "${!ALT_NAMES[@]}"; do
+        restore_alt_cmds+="alternatives --set ${ALT_NAMES[i]} \"${ALT_PREVS[i]}\""$'\n'
+        restore_alt_cmds+="alternatives --remove ${ALT_NAMES[i]} \"${SYMLINK_PATH}/bin/${ALT_NAMES[i]}\" 2>/dev/null || true"$'\n'
+    done
+
     local restore_profile_cmd
     if [[ -f "$PROFILE_SCRIPT" ]]; then
         cp -a "$PROFILE_SCRIPT" "${BACKUP_DIR}/java.sh"
@@ -457,6 +479,7 @@ backup_profile() {
 set -e
 ${restore_profile_cmd}
 rm -f "${SYMLINK_PATH}"
+${restore_alt_cmds}
 echo "복구 완료. 재접속 또는 'source ${PROFILE_SCRIPT}' 후 java -version 으로 확인하세요."
 EOF
     chmod 700 "${BACKUP_DIR}/restore.sh"
@@ -479,6 +502,14 @@ EOF
     chmod 644 "$tmp_profile" || return 1
     mv -T "$tmp_profile" "$PROFILE_SCRIPT" || return 1
     log_ok "${PROFILE_SCRIPT} 갱신: JAVA_HOME=${SYMLINK_PATH}"
+
+    # java-21 링크를 등록해 두면 이후 update 모드의 링크 교체를 alternatives 도 그대로 따라간다
+    local name
+    for name in "${ALT_NAMES[@]}"; do
+        alternatives --install "/usr/bin/${name}" "$name" "${SYMLINK_PATH}/bin/${name}" 2100 || return 1
+        alternatives --set "$name" "${SYMLINK_PATH}/bin/${name}" || return 1
+        log_ok "alternatives ${name} -> ${SYMLINK_PATH}/bin/${name}"
+    done
 }
 
 verify_after_migrate() {
@@ -488,12 +519,16 @@ verify_after_migrate() {
       [[ "$(readlink -f "$(command -v java)")" == "${NEW_JDK_PATH}/bin/java" ]] &&
       java -version && javac -version ) &>/dev/null || return 1
     [[ "$(readlink -f "$SYMLINK_PATH")" == "$NEW_JDK_PATH" ]] || return 1
+    local name
+    for name in "${ALT_NAMES[@]}"; do
+        [[ "$(readlink -f "${ALT_DIR}/${name}")" == "${NEW_JDK_PATH}/bin/${name}" ]] || return 1
+    done
 }
 
 rollback_migration() {
     log_warn "마이그레이션을 롤백합니다: ${BACKUP_DIR}/restore.sh"
     if bash "${BACKUP_DIR}/restore.sh" && [[ ! -e "$SYMLINK_PATH" ]]; then
-        log_ok "롤백 성공: ${PROFILE_SCRIPT} 복원, ${SYMLINK_PATH} 제거 (신규 JDK ${NEW_JDK_PATH} 는 남아 있음)"
+        log_ok "롤백 성공: ${PROFILE_SCRIPT}${ALT_NAMES[*]:+, alternatives(${ALT_NAMES[*]})} 복원, ${SYMLINK_PATH} 제거 (신규 JDK ${NEW_JDK_PATH} 는 남아 있음)"
         exit 1
     else
         log_error "롤백 실패. 수동 조치가 필요합니다. 백업: ${BACKUP_DIR}"
@@ -516,13 +551,15 @@ final_report() {
         echo "  ${BACKUP_DIR}/restore.sh"
         echo
         log_warn "JAVA_HOME 변경은 새 로그인 세션부터 적용됩니다. 현재 쉘은 'source ${PROFILE_SCRIPT}; hash -r' 또는 재접속하세요."
-        log_warn "systemd 서비스는 /etc/profile.d 를 읽지 않습니다. 서비스 설정의 JDK 경로를 ${SYMLINK_PATH} 로 바꾸고 재시작하세요."
+        log_warn "systemd 서비스는 /etc/profile.d 를 읽지 않습니다. 경로 없이 'java'로 실행하면 /usr/bin/java (alternatives)를 사용합니다."
+        [[ ${#ALT_NAMES[@]} -eq 0 ]] || log_ok "alternatives 전환 완료: ${ALT_NAMES[*]} -> ${SYMLINK_PATH}/bin/"
         warn_path_references
     else
         log_warn "현재 로그인된 다른 쉘은 command hash 캐시로 인해 변경 사항이 즉시 반영되지 않을 수 있습니다."
         log_warn "필요 시 해당 쉘에서 'hash -r' 실행 또는 재접속하세요."
+        detect_alternatives
     fi
-    warn_alternatives
+    log_warn "실행 중인 Java 서비스는 재시작해야 신규 JDK가 적용됩니다."
     # shellcheck disable=SC1090
     log_info "java -version: $(source "$PROFILE_SCRIPT"; java -version 2>&1 | head -1)"
     log_info "readlink -f: $(source "$PROFILE_SCRIPT"; readlink -f "$(command -v java)")"
@@ -541,7 +578,7 @@ main() {
             [[ -z "$TARBALL" ]] || error_exit "--check 옵션은 tar.gz 인자와 함께 사용할 수 없습니다."
             inspect_current_env
             [[ "$INSTALL_TYPE" == "migrate" ]] && warn_path_references
-            warn_alternatives
+            detect_alternatives
             exit 0 ;;
     esac
 
@@ -563,7 +600,7 @@ main() {
     compare_and_gate_version
     check_running_java_processes
     [[ "$INSTALL_TYPE" == "migrate" ]] && warn_path_references
-    warn_alternatives
+    detect_alternatives
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
         print_dry_run_summary

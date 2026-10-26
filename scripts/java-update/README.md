@@ -39,8 +39,8 @@ Rocky Linux 9 환경에서 tar.gz로 수동 설치한 JDK(OpenJDK, Eclipse Temur
 - **선택적 SHA-256 검증**: `--sha256` 제공 시 불일치하면 즉시 중단, 미제공 시 경고만
 - **백업/복구 (migrate)**: `/backup/java-update/backup_YYYYMMDD_HHMMSS/` 에 기존 `java.sh` 와 `restore.sh` 생성
 - **자동 롤백**: 전환 후 검증 실패 시 이전 상태로 즉시 복구 (`migrate`는 `restore.sh` 실행, `update`는 이전 링크로 복원)
-- **기존 경로 참조 경고 (migrate)**: systemd unit, `/etc/sysconfig`, `/etc/profile*`, 사용자 `.bashrc` 등에서 기존 JDK 경로를 직접 참조하는 파일을 찾아 경고 (수정하지 않음)
-- **alternatives 경고**: `/usr/bin/java` (alternatives)가 기존 JDK 실제 경로를 가리키면 전환 명령과 함께 경고 (변경하지 않음). RPM Java 8 등 다른 JDK를 가리키거나 이미 `java-21` 링크를 가리키면 경고하지 않음
+- **alternatives 자동 전환 (migrate)**: `/usr/bin/java`·`/usr/bin/javac` (alternatives)가 기존 JDK 실제 경로를 가리키면 `/usr/lib/jvm/java-21/bin/*` 로 등록·전환하고, `restore.sh` 에 원복 명령을 기록. RPM Java 8 등 다른 JDK를 가리키거나 alternatives가 없으면 건드리지 않음. `java-21` 링크로 등록하므로 이후 update 모드에서는 alternatives 변경이 필요 없음
+- **기존 경로 참조 경고 (migrate)**: systemd unit, `/etc/sysconfig`, `/etc/profile*`, 사용자 `.bashrc` 등에서 기존 JDK 경로를 직접 참조하는 줄을 `파일:줄번호:내용` 으로 경고 (수정하지 않음, 주석 처리된 줄은 제외)
 - **삭제 없음**: 기존 JDK 디렉터리와 링크는 절대 자동 삭제하지 않음 (경로만 안내)
 - **실행 중 프로세스 경고**: `pgrep -ax java`로 조회만 하고 kill/재시작은 하지 않음
 
@@ -60,19 +60,38 @@ tar.gz와 SHA-256 값은 [Corretto 21 다운로드 페이지](https://docs.aws.a
 ## 마이그레이션 절차 (권장)
 
 1. 테스트 서버에서 애플리케이션 호환성 확인 (특히 8/11/17 → 21 메이저 업그레이드)
-2. `./update-java.sh --check` 로 현재 JDK와 기존 경로 참조 파일 확인
-3. `sudo ./update-java.sh --dry-run <tar.gz>` 로 검증
-4. `sudo ./update-java.sh --sha256 <hash> <tar.gz>` 실행 → `y` 입력
-5. 경고된 systemd unit 등의 JDK 경로를 `/usr/lib/jvm/java-21` 로 수정 → `systemctl daemon-reload`
-6. alternatives 경고가 있었다면 안내된 명령 실행:
-   ```bash
-   alternatives --install /usr/bin/java java /usr/lib/jvm/java-21/bin/java 2100
-   alternatives --set java /usr/lib/jvm/java-21/bin/java
-   ```
-7. 서비스 재시작 후 확인: `for p in $(pgrep -x java); do echo "$p $(readlink -f /proc/$p/exe)"; done`
-8. 재접속 후 `java -version`, `echo $JAVA_HOME`, `readlink -f /usr/bin/java` 확인
+2. `./update-java.sh --check` 로 현재 JDK, 기존 경로 참조 줄, alternatives 전환 대상 확인
+3. 경고된 설정 줄 정리 (아래 [기존 경로 참조 정리](#기존-경로-참조-정리) 참고)
+4. `sudo ./update-java.sh --dry-run <tar.gz>` 로 검증 (경로 참조 경고가 사라졌는지 확인)
+5. `sudo ./update-java.sh --sha256 <hash> <tar.gz>` 실행 → `y` 입력 (alternatives는 자동 전환)
+6. 서비스 재시작 후 확인: `for p in $(pgrep -x java); do echo "$p $(readlink -f /proc/$p/exe)"; done`
+7. 재접속 후 `java -version`, `echo $JAVA_HOME`, `readlink -f /usr/bin/java` 확인
 
-> 원복 시 `restore.sh` 는 alternatives를 되돌리지 않습니다. 6번을 실행했다면 `alternatives --remove java /usr/lib/jvm/java-21/bin/java` 도 함께 실행하세요.
+> 원복: `sudo /backup/java-update/backup_<타임스탬프>/restore.sh` 실행 후 서비스 재시작. `java.sh`, `java-21` 링크, alternatives를 모두 되돌립니다. 3번에서 직접 수정한 파일은 직접 되돌려야 합니다.
+
+### 기존 경로 참조 정리
+
+스크립트는 `/etc/profile` 같은 시스템 공통 파일을 수정하지 않고, 기존 JDK 경로를 참조하는 줄을 `파일:줄번호:내용` 으로 알려줍니다.
+
+```
+[WARN]   /etc/profile:82:export JAVA_HOME=/usr/lib/jvm/jdk-21.0.4
+[WARN]   /etc/profile:83:export PATH=/usr/lib/jvm/jdk-21.0.4/bin:$PATH
+```
+
+줄 번호는 서버마다 다르므로, 경고에 나온 번호를 그대로 쓰거나 아래처럼 패턴으로 일괄 주석 처리합니다.
+
+```bash
+OLD=/usr/lib/jvm/jdk-21.0.4                        # 경고 메시지의 기존 JDK 경로
+cp -a /etc/profile /root/profile.bak_$(date +%Y%m%d_%H%M%S)
+# 해당 경로가 있는 활성 줄만 주석 처리 (이미 주석인 줄, jdk-21.0.40 같은 다른 버전은 제외)
+sed -i -E "\#^[[:space:]]*[^#[:space:]].*${OLD}(/|[[:space:]\"':]|\$)#s|^|#|" /etc/profile
+grep -n "${OLD}\|JAVA_HOME" /etc/profile           # 결과 확인
+```
+
+- `JAVA_HOME` 줄과 함께 `export PATH=$JAVA_HOME/bin:$PATH` 처럼 **경로 없이 변수만 쓰는 줄**은 경고에 나오지 않습니다. 남겨도 동작에는 문제없지만(`java.sh` 의 `JAVA_HOME` 을 사용), 정리하려면 직접 확인하세요.
+- `/etc/profile` 의 설정은 `/etc/profile.d/*.sh` 를 읽은 **뒤**에 실행되면 `java.sh` 를 덮어씁니다. 위치와 관계없이 기존 JDK 줄은 주석 처리하는 것을 권장합니다.
+- systemd unit 파일이 경고되면 경로를 `/usr/lib/jvm/java-21` 로 바꾸고 `systemctl daemon-reload` 후 재시작합니다.
+- 스크립트를 다시 실행(`--check` 또는 `--dry-run`)하면 주석 처리된 줄은 경고에서 빠지므로 정리 여부를 확인할 수 있습니다.
 
 ## 실행 예시
 
@@ -82,12 +101,14 @@ tar.gz와 SHA-256 값은 [Corretto 21 다운로드 페이지](https://docs.aws.a
 [INFO] Current Java: Eclipse Adoptium 21.0.10 (major 21)
 [INFO] New Java version: Corretto 21.0.10.7.1 (x86_64)
 [INFO] 동일 메이저 버전의 벤더 전환입니다 (Eclipse Adoptium 21.0.10 -> Corretto 21.0.10.7.1).
-[WARN] 아래 파일이 기존 JDK 경로(/usr/lib/jvm/temurin-21)를 직접 참조합니다. 마이그레이션 후에도 기존 JDK를 사용하므로 직접 수정하세요:
-[WARN]   /etc/systemd/system/app.service
+[WARN] 아래 설정이 기존 JDK 경로(/usr/lib/jvm/temurin-21)를 직접 참조합니다. 마이그레이션 후에도 기존 JDK를 사용하므로 직접 주석 처리 또는 수정하세요:
+[WARN]   /etc/systemd/system/app.service:7:Environment=JAVA_HOME=/usr/lib/jvm/temurin-21
+[INFO] alternatives java: /usr/lib/jvm/jdk-21.0.10+7/bin/java -> /usr/lib/jvm/java-21/bin/java (전환 시 자동 변경)
 [INFO] === DRY-RUN 요약 (실제 변경 없음) ===
 [INFO] 설치 예정 경로: /usr/lib/jvm/amazon-corretto-21.0.10.7.1-linux-x64
 [INFO] 변경 예정 심볼릭 링크: /usr/lib/jvm/java-21 -> /usr/lib/jvm/amazon-corretto-21.0.10.7.1-linux-x64
 [INFO] 재작성 예정: /etc/profile.d/java.sh (JAVA_HOME=/usr/lib/jvm/java-21, 기존 파일은 /backup/java-update/backup_<타임스탬프>/ 에 백업)
+[INFO] alternatives 전환 예정: java -> /usr/lib/jvm/java-21/bin/
 [OK] DRY-RUN 완료. 실제 변경 사항 없음.
 ```
 
@@ -96,7 +117,7 @@ tar.gz와 SHA-256 값은 [Corretto 21 다운로드 페이지](https://docs.aws.a
 [OK] 백업 완료: /backup/java-update/backup_20261026_122811 (복구: /backup/java-update/backup_20261026_122811/restore.sh)
 [ERROR] Corretto 전환 또는 전환 후 검증에 실패했습니다.
 [WARN] 마이그레이션을 롤백합니다: /backup/java-update/backup_20261026_122811/restore.sh
-[OK] 롤백 성공: /etc/profile.d/java.sh 복원, /usr/lib/jvm/java-21 제거 (신규 JDK ... 는 남아 있음)
+[OK] 롤백 성공: /etc/profile.d/java.sh, alternatives(java javac) 복원, /usr/lib/jvm/java-21 제거 (신규 JDK ... 는 남아 있음)
 ```
 롤백 자체가 실패하면 `[ERROR] 롤백 실패. 수동 조치가 필요합니다.`를 출력하고 exit code 2로 종료합니다. 마이그레이션 성공 후 원복이 필요하면 `sudo /backup/java-update/backup_<타임스탬프>/restore.sh` 를 실행하세요.
 
@@ -110,7 +131,7 @@ tar.gz와 SHA-256 값은 [Corretto 21 다운로드 페이지](https://docs.aws.a
 
 ## 주의사항
 
-- **systemd 서비스는 `/etc/profile.d` 를 읽지 않습니다.** unit 파일에 기존 JDK 경로가 하드코딩되어 있으면 마이그레이션 후에도 기존 JDK로 실행됩니다. 스크립트가 경고한 파일을 직접 수정하세요.
+- **systemd 서비스는 `/etc/profile.d` 를 읽지 않습니다.** 경로 없이 `java` 로 실행하면 `/usr/bin/java` (alternatives)를 사용하며, 이는 스크립트가 자동 전환합니다. unit 파일에 기존 JDK 경로가 하드코딩되어 있으면 마이그레이션 후에도 기존 JDK로 실행되니 경고된 줄을 직접 수정하세요.
 - `/etc/profile.d/java.sh` 는 JAVA_HOME/PATH 두 줄로 **재작성**됩니다. 기존 파일에 다른 설정(CLASSPATH 등)이 있었다면 백업본에서 옮겨 넣으세요.
 - `java-21-openjdk` 등 RPM Java가 함께 설치되어 `/usr/bin/java` (alternatives)가 존재해도 로그인 쉘에서는 `$JAVA_HOME/bin` 이 PATH 앞에 오므로 Corretto가 우선합니다. 절대경로 `/usr/bin/java` 를 쓰는 스크립트는 영향을 받지 않습니다.
 - `command -v java` 결과는 현재 쉘의 command hash 캐시에 의해 즉시 반영되지 않을 수 있습니다. 변경 후 `hash -r` 또는 재접속을 권장합니다.
