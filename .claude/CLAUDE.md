@@ -26,7 +26,7 @@ linux-ez-kit/
 └── scripts/                          # 모든 스크립트 모음
     ├── system-monitoring/            # 시스템 상태 모니터링
     ├── network-bonding/              # NIC 본딩 자동 구성
-    ├── vulnerabilty-check/           # React/Next.js CVE 점검
+    ├── vulnerabilty-check/           # React/Next.js, Node2Shell, PHP2Shell CVE 점검
     ├── ssl_ssh_patch/                # OpenSSL/OpenSSH 보안 패치
     ├── keepalive-guardian/           # 서비스 가동 유지 감시
     └── db-migration/                 # MariaDB 스키마/데이터 마이그레이션
@@ -124,16 +124,24 @@ sudo ./set_bonding.sh --restore <타임스탬프>
 
 ---
 
-### 3. React/Next.js Vulnerability Check (`vulnerabilty-check/`)
+### 3. Vulnerability Check (`vulnerabilty-check/`)
 
-**목적**: React Server Components 및 Next.js의 심각한 보안 취약점(CVE-2025-55182, CVE-2025-66478) 자동 점검
+**목적**: 최근 RCE 취약점 자동 점검 — React/Next.js(CVE-2025-55182, CVE-2025-66478), Node2Shell(CVE-2026-111497), PHP2Shell(CVE-2026-109618, CVE-2026-109619)
 
 #### 파일 구조
 ```
 vulnerabilty-check/
-├── check_react_nextjs_vulnerability.sh    # 메인 점검 스크립트
+├── check_react_nextjs_vulnerability.sh    # React/Next.js 점검 (package.json 파싱)
+├── check_node2shell.sh                    # Node.js 내장 Brotli / 시스템 libbrotli 점검
+├── check_php2shell.sh                     # php / php-fpm 버전 + 완화 설정 점검
+├── run_all.sh                             # check_*.sh 순차 실행 후 요약
 └── README.md                              # 사용 가이드
 ```
+
+#### 항목 추가 규칙
+- 새 항목은 `check_<name>.sh` 로 추가하면 `run_all.sh` 가 자동 포함
+- 취약 발견 시 exit 1, 없으면 exit 0
+- 배포판 패키지 소유 바이너리는 changelog 의 CVE 확인을 버전 비교보다 우선 (백포트 대응)
 
 #### 주요 기능
 - package.json 파일 자동 검색 (/home, /var/www, /opt, /usr/local)

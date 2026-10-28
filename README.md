@@ -28,10 +28,13 @@ Linux Ez Kit은 리눅스 서버 관리자와 운영자를 위한 편리한 스�
 
 ### 보안 및 취약점 검사
 
-#### [React/Next.js Vulnerability Check](scripts/vulnerabilty-check/)
-React Server Components 및 Next.js의 심각한 보안 취약점(CVE-2025-55182, CVE-2025-66478)을 자동으로 점검하는 스크립트입니다.
+#### [Vulnerability Check](scripts/vulnerabilty-check/)
+최근 이슈가 된 RCE 취약점을 자동으로 점검하는 스크립트 모음입니다.
+- React Server Components / Next.js (CVE-2025-55182, CVE-2025-66478)
+- Node2Shell - Node.js Brotli (CVE-2026-111497)
+- PHP2Shell - PHP (CVE-2026-109618, CVE-2026-109619)
 
-- **주요 기능**: package.json 자동 검색, 취약한 버전 탐지, 상세 보고서 생성
+- **주요 기능**: package.json / node·php 바이너리 자동 검색, 취약 버전 탐지, 배포판 백포트(changelog) 확인, `run_all.sh` 종합 점검, 상세 보고서 생성
 - **사용 사례**: 웹 애플리케이션 보안 점검, 취약점 모니터링, 컴플라이언스 검증
 - **지원 환경**: 모든 Linux 배포판 (순수 bash, 외부 의존성 없음)
 - **특징**: Node.js, jq 등 추가 패키지 설치 불필요
@@ -96,7 +99,7 @@ Git 없이 원하는 스크립트만 ZIP 파일로 바로 다운로드할 수 �
 |---------|---------|
 | System Status Monitoring | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/system-monitoring) |
 | NIC Bonding Configuration | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/network-bonding) |
-| React/Next.js Vulnerability Check | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/vulnerabilty-check) |
+| Vulnerability Check (React/Next.js, Node2Shell, PHP2Shell) | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/vulnerabilty-check) |
 | OpenSSL/OpenSSH Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/ssl_ssh_patch) |
 | Kernel Security Patch | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/kernel_patch) |
 | Java (Corretto 21) Migration / Update | [ZIP 다운로드](https://download-directory.github.io/?url=https://github.com/HelloJamong/linux-ez-kit/tree/main/scripts/java-update) |
@@ -140,6 +143,9 @@ linux-ez-kit/
 │   │   └── README.md
 │   ├── vulnerabilty-check/             # 취약점 검사 스크립트
 │   │   ├── check_react_nextjs_vulnerability.sh
+│   │   ├── check_node2shell.sh
+│   │   ├── check_php2shell.sh
+│   │   ├── run_all.sh
 │   │   └── README.md
 │   ├── ssl_ssh_patch/                  # OpenSSL/OpenSSH 보안 패치 스크립트
 │   │   ├── patch_script.sh
